@@ -1,0 +1,10 @@
+go 1.27.1
+
+use (
+	./cart
+	./gateway
+	./integration-tests
+	./loms
+	./notifier
+	./pkg
+)

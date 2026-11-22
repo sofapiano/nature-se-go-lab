@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package github.com.igoroutine_courses.microservices.ecommerce.cart.v1;
+option go_package = "github.com/igoroutine-courses/microservices.ecommerce.pkg/generated/cart/api/cart/v1;cart";
+
+import "google/protobuf/empty.proto";
+import "buf/validate/validate.proto";
+
+service Cart {
+//  rpc AddItem(...) returns (...);
+//  rpc DeleteItem(...) returns (...);
+//  rpc ListCart(...) returns (...);
+//  rpc ClearCart(...) returns (...);
+//  rpc CheckoutCart(...) returns (...);
+//  rpc SetItemQuantity(...) returns (...);
+}

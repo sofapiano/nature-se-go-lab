@@ -1,0 +1,10 @@
+syntax = "proto3";
+
+package github.com.igoroutine_courses.microservices.ecommerce.notifier.v1;
+
+option go_package = "github.com/igoroutine-courses/microservices.ecommerce.pkg/generated/notifier/api/v1;notifier";
+
+import "google/protobuf/empty.proto";
+import "buf/validate/validate.proto";
+
+service Notifier {}

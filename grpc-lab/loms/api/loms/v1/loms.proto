@@ -1,0 +1,109 @@
+syntax = "proto3";
+
+package github.com.igoroutine_courses.microservices.ecommerce.loms.v1;
+
+option go_package = "github.com/igoroutine-courses/microservices.ecommerce.pkg/generated/loms/api/loms/v1;loms";
+
+import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
+import "buf/validate/validate.proto";
+
+service Loms {
+  rpc CreateOrder(CreateOrderRequest) returns (CreateOrderResponse);
+  rpc GetOrder(GetOrderRequest) returns (GetOrderResponse);
+  rpc PayOrder(PayOrderRequest) returns (google.protobuf.Empty);
+  rpc CancelOrder(CancelOrderRequest) returns (google.protobuf.Empty);
+  rpc ListOrders(ListOrdersRequest) returns (ListOrdersResponse);
+}
+
+enum OrderStatus {
+  ORDER_STATUS_UNSPECIFIED      = 0;
+  ORDER_STATUS_AWAITING_PAYMENT = 1;
+  ORDER_STATUS_PAYMENT_PENDING  = 2;
+  ORDER_STATUS_PAID             = 3;
+  ORDER_STATUS_CANCELLED        = 4;
+  ORDER_STATUS_FAILED           = 5;
+}
+
+message Item {
+  string sku   = 1 [json_name = "sku"];
+  uint32 count = 2 [json_name = "count"];
+  string name  = 3 [json_name = "name"];
+  uint32 price = 4 [json_name = "price"];
+}
+
+message ItemInput {
+  string sku   = 1 [json_name = "sku",   (buf.validate.field).string = {min_len: 1, max_len: 64, pattern: "^[A-Za-z0-9][A-Za-z0-9_-]*$"}];
+  uint32 count = 2 [json_name = "count", (buf.validate.field).uint32 = {gte: 1, lte: 1000}];
+}
+
+message Transition {
+  OrderStatus status = 1 [json_name = "status"];
+  google.protobuf.Timestamp occurred_at = 2 [json_name = "occurred_at"];
+}
+
+message Antifraud {
+  double risk_score    = 1 [json_name = "risk_score"];
+  string model_version = 2 [json_name = "model_version"];
+  string decline_reason = 3 [json_name = "decline_reason"];
+}
+
+message PaymentSummary {
+  string payment_id   = 1 [json_name = "payment_id"];
+  string external_id  = 2 [json_name = "external_id"];
+  uint64 amount_minor = 3 [json_name = "amount_minor"];
+  string currency     = 4 [json_name = "currency"];
+  string status       = 5 [json_name = "status"];
+  Antifraud antifraud = 6 [json_name = "antifraud"];
+}
+
+message Order {
+  string order_id           = 1  [json_name = "order_id"];
+  string user_id            = 2  [json_name = "user_id"];
+  OrderStatus status        = 3  [json_name = "status"];
+  repeated Item items       = 4  [json_name = "items"];
+  uint64 total_amount_minor = 5  [json_name = "total_amount_minor"];
+  string currency           = 6  [json_name = "currency"];
+  PaymentSummary payment    = 7  [json_name = "payment"];
+  repeated PaymentSummary payments = 8 [json_name = "payments"];
+  repeated Transition history = 9 [json_name = "history"];
+  google.protobuf.Timestamp created_at = 10 [json_name = "created_at"];
+  google.protobuf.Timestamp updated_at = 11 [json_name = "updated_at"];
+}
+
+message CreateOrderRequest {
+  string user_id    = 1 [json_name = "user_id",    (buf.validate.field).string = {uuid: true, pattern: "(?i)^.{14}7.{4}[89ab]"}];
+  repeated ItemInput items = 2 [json_name = "items", (buf.validate.field).repeated.min_items = 1];
+  string request_id = 3 [json_name = "request_id", (buf.validate.field).string = {uuid: true, pattern: "(?i)^.{14}7.{4}[89ab]"}];
+}
+
+message CreateOrderResponse {
+  string order_id = 1 [json_name = "order_id"];
+}
+
+message GetOrderRequest {
+  string order_id = 1 [json_name = "order_id", (buf.validate.field).string = {uuid: true, pattern: "(?i)^.{14}7.{4}[89ab]"}];
+}
+
+message GetOrderResponse {
+  Order order = 1 [json_name = "order"];
+}
+
+message PayOrderRequest {
+  string order_id = 1 [json_name = "order_id", (buf.validate.field).string = {uuid: true, pattern: "(?i)^.{14}7.{4}[89ab]"}];
+}
+
+message CancelOrderRequest {
+  string order_id = 1 [json_name = "order_id", (buf.validate.field).string = {uuid: true, pattern: "(?i)^.{14}7.{4}[89ab]"}];
+}
+
+message ListOrdersRequest {
+  string user_id        = 1 [json_name = "user_id", (buf.validate.field).string = {uuid: true, pattern: "(?i)^.{14}7.{4}[89ab]"}];
+  string after_order_id = 2 [json_name = "after_order_id", (buf.validate.field) = {ignore: IGNORE_IF_ZERO_VALUE, string: {uuid: true, pattern: "(?i)^.{14}7.{4}[89ab]"}}];
+  uint32 limit          = 3 [json_name = "limit", (buf.validate.field).uint32.lte = 100];
+}
+
+message ListOrdersResponse {
+  repeated Order orders         = 1 [json_name = "orders"];
+  string next_after_order_id    = 2 [json_name = "next_after_order_id"];
+}

@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package github.com.igoroutine_courses.microservices.ecommerce.loms.v1;
+
+option go_package = "github.com/igoroutine-courses/microservices.ecommerce.pkg/generated/loms/api/loms/v1;loms";
+
+import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
+import "buf/validate/validate.proto";
+
+service Loms {
+//  rpc CreateOrder(...) returns (...);
+//  rpc GetOrder(...) returns (...);
+//  rpc PayOrder(...) returns (...);
+//  rpc CancelOrder(...) returns (...);
+//  rpc ListOrders(...) returns (...);
+}

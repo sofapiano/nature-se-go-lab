@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package github.com.igoroutine_courses.microservices.ecommerce.product.v1;
+
+option go_package = "github.com/igoroutine-courses/microservices.ecommerce.pkg/generated/loms/api/product/v1;product";
+
+import "google/protobuf/empty.proto";
+import "buf/validate/validate.proto";
+
+service ProductService {
+//  rpc CreateProduct(...) returns (...);
+//  rpc GetProduct(...) returns (...);
+//  rpc ListProducts(...) returns (...);
+//  rpc UpdateProduct(...) returns (...);
+}

@@ -1,0 +1,82 @@
+package app
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"net"
+	"net/http"
+	"time"
+
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/health"
+	healthpb "google.golang.org/grpc/health/grpc_health_v1"
+
+	"github.com/igoroutine-courses/microservices.ecommerce.notifier/internal/adapter/telegram"
+	"github.com/igoroutine-courses/microservices.ecommerce.notifier/internal/config"
+	"github.com/igoroutine-courses/microservices.ecommerce.notifier/internal/controller/interceptor"
+	notificationcontroller "github.com/igoroutine-courses/microservices.ecommerce.notifier/internal/controller/notification"
+	"github.com/igoroutine-courses/microservices.ecommerce.notifier/internal/repository/binding"
+	notificationusecase "github.com/igoroutine-courses/microservices.ecommerce.notifier/internal/usecase/notification"
+	notifierpb "github.com/igoroutine-courses/microservices.ecommerce.pkg/generated/notifier/api/v1"
+)
+
+const (
+	shutdownTimeout = 10 * time.Second
+	telegramTimeout = 5 * time.Second
+)
+
+func Run(ctx context.Context, cfg *config.Config) error {
+	validation, err := interceptor.Validation()
+	if err != nil {
+		return fmt.Errorf("create validation interceptor: %w", err)
+	}
+
+	telegramClient := telegram.New(cfg.Telegram.BaseURL, cfg.Telegram.Token, &http.Client{
+		Timeout: telegramTimeout,
+	})
+	repo := binding.New()
+	svc := notificationusecase.New(telegramClient, repo)
+	ctrl := notificationcontroller.New(svc)
+
+	server := grpc.NewServer(grpc.ChainUnaryInterceptor(validation))
+	notifierpb.RegisterNotifierServer(server, ctrl)
+
+	healthSrv := health.NewServer()
+	healthpb.RegisterHealthServer(server, healthSrv)
+	healthSrv.SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
+
+	listener, err := net.Listen("tcp", ":"+cfg.GRPC.Port)
+	if err != nil {
+		return fmt.Errorf("listen on port %s: %w", cfg.GRPC.Port, err)
+	}
+
+	serveErr := make(chan error, 1)
+	go func() { serveErr <- server.Serve(listener) }()
+
+	slog.Info("notifier started", slog.String("port", cfg.GRPC.Port))
+
+	select {
+	case err := <-serveErr:
+		return fmt.Errorf("serve: %w", err)
+	case <-ctx.Done():
+	}
+
+	slog.Info("notifier is shutting down")
+	stopGracefully(server)
+	return nil
+}
+
+func stopGracefully(server *grpc.Server) {
+	stopped := make(chan struct{})
+	go func() {
+		server.GracefulStop()
+		close(stopped)
+	}()
+
+	select {
+	case <-stopped:
+	case <-time.After(shutdownTimeout):
+		server.Stop()
+	}
+}

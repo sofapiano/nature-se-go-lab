@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package github.com.igoroutine_courses.microservices.ecommerce.stocks.v1;
+
+option go_package = "github.com/igoroutine-courses/microservices.ecommerce.pkg/generated/loms/api/stocks/v1;stocks";
+
+import "google/protobuf/empty.proto";
+import "buf/validate/validate.proto";
+
+service Stocks {
+//  rpc GetStock(...) returns (...);
+//  rpc SetStock(...) returns (...);
+//  rpc ReceiveStock(...) returns (...);
+}

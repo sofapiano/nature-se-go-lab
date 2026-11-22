@@ -1,0 +1,38 @@
+syntax = "proto3";
+
+package github.com.igoroutine_courses.microservices.ecommerce.stocks.v1;
+
+option go_package = "github.com/igoroutine-courses/microservices.ecommerce.pkg/generated/loms/api/stocks/v1;stocks";
+
+import "google/protobuf/empty.proto";
+import "buf/validate/validate.proto";
+
+service Stocks {
+  rpc GetStock(GetStockRequest) returns (GetStockResponse);
+  rpc SetStock(SetStockRequest) returns (google.protobuf.Empty);
+  rpc ReceiveStock(ReceiveStockRequest) returns (google.protobuf.Empty);
+}
+
+message GetStockRequest {
+  string sku = 1 [json_name = "sku", (buf.validate.field).string = {min_len: 1, max_len: 64, pattern: "^[A-Za-z0-9][A-Za-z0-9_-]*$"}];
+}
+
+// count — uint64, поэтому в JSON он приходит строкой ("count":"5"): так protojson
+// записывает 64-битные числа, и так его читают тесты.
+message GetStockResponse {
+  uint64 count = 1 [json_name = "count"];
+}
+
+// SetStock заменяет остаток целиком; повторный вызов с тем же значением безопасен.
+message SetStockRequest {
+  string sku = 1 [json_name = "sku", (buf.validate.field).string = {min_len: 1, max_len: 64, pattern: "^[A-Za-z0-9][A-Za-z0-9_-]*$"}];
+  uint64 count = 2 [json_name = "count", (buf.validate.field).uint64.lte = 1000000000];
+}
+
+// ReceiveStock добавляет count к остатку. operation_id — ключ идемпотентности:
+// повтор с теми же данными ничего не меняет, с другими данными — конфликт.
+message ReceiveStockRequest {
+  string sku = 1 [json_name = "sku", (buf.validate.field).string = {min_len: 1, max_len: 64, pattern: "^[A-Za-z0-9][A-Za-z0-9_-]*$"}];
+  uint64 count = 2 [json_name = "count", (buf.validate.field).uint64 = {gte: 1, lte: 1000000000}];
+  string operation_id = 3 [json_name = "operation_id", (buf.validate.field).string = {uuid: true, pattern: "(?i)^.{14}7.{4}[89ab]"}];
+}
