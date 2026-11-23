@@ -1,48 +1,48 @@
-package order_test
+package order
 
 import (
 	"context"
-	"errors"
-	"strings"
-	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 
 	"github.com/igoroutine-courses/microservices.ecommerce.loms/internal/entity"
-	. "github.com/igoroutine-courses/microservices.ecommerce.loms/internal/usecase/order"
-	mocks "github.com/igoroutine-courses/microservices.ecommerce.loms/internal/usecase/order/mocks"
+	"github.com/igoroutine-courses/microservices.ecommerce.loms/internal/usecase/order/mocks"
 )
 
-const (
-	userID    = "01900000-0000-7000-8000-000000000001"
-	requestID = "01900000-0000-7000-8000-000000000002"
-	orderID   = "01900000-0000-7000-8000-000000000003"
-)
+// noopTransactor — заглушка для юнит-тестов, просто выполняет функцию без реальной БД-транзакции.
+type noopTransactor struct{}
+
+func (n *noopTransactor) WithTx(ctx context.Context, fn func(context.Context) error) error {
+	return fn(ctx)
+}
 
 type deps struct {
-	svc      *Service
-	orders   *mocks.MockorderRepository
-	products *mocks.MockproductRepository
-	stocks   *mocks.MockstocksRepository
-	billing  *mocks.MockbillingClient
-	notifier *mocks.MocknotificationClient
+	svc        *Service
+	orders     *mocks.MockorderRepository
+	products   *mocks.MockproductRepository
+	stocks     *mocks.MockstocksRepository
+	billing    *mocks.MockbillingClient
+	notifier   *mocks.MocknotificationClient
+	outbox     *mocks.MockoutboxRepository
+	transactor *noopTransactor
 }
 
 func setup(t *testing.T) deps {
 	t.Helper()
 	ctrl := gomock.NewController(t)
 	d := deps{
-		orders:   mocks.NewMockorderRepository(ctrl),
-		products: mocks.NewMockproductRepository(ctrl),
-		stocks:   mocks.NewMockstocksRepository(ctrl),
-		billing:  mocks.NewMockbillingClient(ctrl),
-		notifier: mocks.NewMocknotificationClient(ctrl),
+		orders:     mocks.NewMockorderRepository(ctrl),
+		products:   mocks.NewMockproductRepository(ctrl),
+		stocks:     mocks.NewMockstocksRepository(ctrl),
+		billing:    mocks.NewMockbillingClient(ctrl),
+		notifier:   mocks.NewMocknotificationClient(ctrl),
+		outbox:     mocks.NewMockoutboxRepository(ctrl),
+		transactor: &noopTransactor{},
 	}
-	d.svc = New(d.orders, d.products, d.stocks, d.billing, d.notifier)
+	d.svc = New(d.orders, d.products, d.stocks, d.billing, d.notifier, d.transactor, d.outbox)
 	return d
 }
 

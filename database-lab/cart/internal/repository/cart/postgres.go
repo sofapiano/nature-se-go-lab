@@ -59,7 +59,7 @@ func (r *postgresRepository) Get(ctx context.Context, userID string) (entity.Car
 
 // Add добавляет товар в корзину или увеличивает количество.
 // Использует транзакцию для конкурентной безопасности.
-func (r *postgresRepository) Add(ctx context.Context, userID, sku string, count uint32, available uint64) error {
+func (r *postgresRepository) Add(ctx context.Context, userID, sku string, count uint32, _ uint64) error {
 	return r.transactor.WithTx(ctx, func(txCtx context.Context) error {
 		exec := db.GetExecutor(txCtx, r.pool)
 
@@ -99,7 +99,7 @@ func (r *postgresRepository) Add(ctx context.Context, userID, sku string, count 
 }
 
 // Set устанавливает точное количество товара в корзине.
-func (r *postgresRepository) Set(ctx context.Context, userID, sku string, count uint32, available uint64) error {
+func (r *postgresRepository) Set(ctx context.Context, userID, sku string, count uint32, _ uint64) error {
 	return r.transactor.WithTx(ctx, func(txCtx context.Context) error {
 		exec := db.GetExecutor(txCtx, r.pool)
 

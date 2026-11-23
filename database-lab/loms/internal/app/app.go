@@ -21,14 +21,14 @@ import (
 	outboxrepo "github.com/igoroutine-courses/microservices.ecommerce.loms/internal/repository/outbox"
 	productrepo "github.com/igoroutine-courses/microservices.ecommerce.loms/internal/repository/product"
 	stocksrepo "github.com/igoroutine-courses/microservices.ecommerce.loms/internal/repository/stocks"
-	"github.com/igoroutine-courses/microservices.ecommerce.loms/internal/worker"
 	orderusecase "github.com/igoroutine-courses/microservices.ecommerce.loms/internal/usecase/order"
 	productusecase "github.com/igoroutine-courses/microservices.ecommerce.loms/internal/usecase/product"
 	stocksusecase "github.com/igoroutine-courses/microservices.ecommerce.loms/internal/usecase/stocks"
+	"github.com/igoroutine-courses/microservices.ecommerce.loms/internal/worker"
+	"github.com/igoroutine-courses/microservices.ecommerce.loms/migrations"
 	lomspb "github.com/igoroutine-courses/microservices.ecommerce.pkg/generated/loms/api/loms/v1"
 	productpb "github.com/igoroutine-courses/microservices.ecommerce.pkg/generated/loms/api/product/v1"
 	stockspb "github.com/igoroutine-courses/microservices.ecommerce.pkg/generated/loms/api/stocks/v1"
-	"github.com/igoroutine-courses/microservices.ecommerce.loms/migrations"
 )
 
 const shutdownTimeout = 10 * time.Second
@@ -38,7 +38,7 @@ func Run(ctx context.Context, cfg config.Config) error {
 		DSN:             fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=disable", cfg.PG.User, cfg.PG.Password, cfg.PG.Host, cfg.PG.Port, cfg.PG.DB),
 		MaxConns:        10,
 		MinConns:        2,
-		MaxConnLifetime: 30 * time.Minute,
+		MaxConnLifetime: 30 * time.Minute, //nolint:mnd // эти числа являются стандартными константами алгоритмов или конфигурации.
 	})
 	if err != nil {
 		return fmt.Errorf("create pool: %w", err)

@@ -6,8 +6,8 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/igoroutine-courses/microservices.ecommerce.loms/internal/entity"
 	"github.com/igoroutine-courses/microservices.ecommerce.loms/internal/db"
+	"github.com/igoroutine-courses/microservices.ecommerce.loms/internal/entity"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -21,11 +21,11 @@ const (
 )
 
 type Service struct {
-	orders   orderRepository
-	products productRepository
-	stocks   stocksRepository
-	billing  billingClient
-	notifier notificationClient
+	orders     orderRepository
+	products   productRepository
+	stocks     stocksRepository
+	billing    billingClient
+	notifier   notificationClient
 	transactor db.Transactor
 	outbox     outboxRepository
 }
@@ -37,14 +37,14 @@ func New(
 	billing billingClient,
 	notifier notificationClient,
 	transactor db.Transactor,
-	outbox     outboxRepository,
+	outbox outboxRepository,
 ) *Service {
 	return &Service{
-		orders:   orders,
-		products: products,
-		stocks:   stocks,
-		billing:  billing,
-		notifier: notifier,
+		orders:     orders,
+		products:   products,
+		stocks:     stocks,
+		billing:    billing,
+		notifier:   notifier,
 		transactor: transactor,
 		outbox:     outbox,
 	}

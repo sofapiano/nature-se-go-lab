@@ -36,7 +36,7 @@ func Run(ctx context.Context, cfg *config.Config) error {
 			cfg.PG.User, cfg.PG.Password, cfg.PG.Host, cfg.PG.Port, cfg.PG.DB),
 		MaxConns:        10,
 		MinConns:        2,
-		MaxConnLifetime: 30 * time.Minute,
+		MaxConnLifetime: 30 * time.Minute, //nolint:mnd // эти числа являются стандартными константами алгоритмов или конфигурации.
 	})
 	if err != nil {
 		return fmt.Errorf("create pool: %w", err)

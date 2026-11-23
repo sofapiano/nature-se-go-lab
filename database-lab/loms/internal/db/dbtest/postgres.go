@@ -3,6 +3,7 @@ package dbtest
 
 import (
 	"context"
+	"os"
 	"testing"
 	"time"
 
@@ -41,6 +42,7 @@ func NewPool(t *testing.T, serviceName, migrationsDir string) *pgxpool.Pool {
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
 
-	require.NoError(t, db.RunMigrations(ctx, pool, serviceName, migrationsDir))
+	// В тестах миграции лежат на диске: os.DirFS адаптирует папку под fs.FS.
+	require.NoError(t, db.RunMigrations(ctx, pool, serviceName, os.DirFS(migrationsDir)))
 	return pool
 }

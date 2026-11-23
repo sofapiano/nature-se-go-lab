@@ -19,8 +19,8 @@ func RunMigrations(ctx context.Context, pool *pgxpool.Pool, serviceName string, 
 
 	// В goose v3.30 таймауты передаются как uint64 (секунды): 5 попыток по 10 секунд.
 	sessionLocker, err := lock.NewPostgresSessionLocker(
-		lock.WithLockTimeout(5, 10),
-		lock.WithUnlockTimeout(5, 10),
+		lock.WithLockTimeout(5, 10),   //nolint:mnd // эти числа являются стандартными константами алгоритмов или конфигурации.
+		lock.WithUnlockTimeout(5, 10), //nolint:mnd // эти числа являются стандартными константами алгоритмов или конфигурации.
 		lock.WithLockID(lockID),
 	)
 	if err != nil {
@@ -65,7 +65,7 @@ func RunMigrations(ctx context.Context, pool *pgxpool.Pool, serviceName string, 
 func generateStableLockID(serviceName string) int64 {
 	var id int64
 	for _, c := range serviceName {
-		id = id*31 + int64(c)
+		id = id*31 + int64(c) //nolint:mnd // эти числа являются стандартными константами алгоритмов или конфигурации.
 	}
 	if id < 0 {
 		id = -id
