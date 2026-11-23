@@ -2,14 +2,24 @@ package order
 
 import (
 	"context"
+	"errors"
+	"strings"
+	"sync"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/igoroutine-courses/microservices.ecommerce.loms/internal/entity"
 	"github.com/igoroutine-courses/microservices.ecommerce.loms/internal/usecase/order/mocks"
+)
+
+const (
+	userID    = "01900000-0000-7000-8000-000000000001"
+	requestID = "01900000-0000-7000-8000-000000000002"
+	orderID   = "01900000-0000-7000-8000-000000000003"
 )
 
 // noopTransactor — заглушка для юнит-тестов, просто выполняет функцию без реальной БД-транзакции.
@@ -47,7 +57,6 @@ func setup(t *testing.T) deps {
 }
 
 // captureUpdate — подписывается на Update и сохраняет последний Order.
-// Нужно для проверки финального статуса без доступа к внутренностям.
 func captureUpdate(d deps) *entity.Order {
 	var captured entity.Order
 	d.orders.EXPECT().Update(gomock.Any(), gomock.Any()).
@@ -69,7 +78,7 @@ func TestCreateOrder_Success(t *testing.T) {
 	var saved entity.Order
 	d.orders.EXPECT().Save(gomock.Any(), gomock.Any(), requestID, gomock.Any()).
 		DoAndReturn(func(_ context.Context, o entity.Order, _ string, _ []entity.Item) { saved = o })
-	d.notifier.EXPECT().SendOrderStatusChanged(gomock.Any(), userID, gomock.Any(), "awaiting_payment").Return(nil)
+	d.outbox.EXPECT().Save(gomock.Any(), gomock.Any()).Return(nil)
 
 	id, err := d.svc.CreateOrder(context.Background(), userID, requestID,
 		[]entity.Item{{SKU: "sku-1", Count: 2}})
@@ -93,7 +102,6 @@ func TestCreateOrder_IdempotentReplay_ReturnsSameOrder_NoReservation(t *testing.
 		OrderID:   orderID,
 	}
 	d.orders.EXPECT().GetRequest(gomock.Any(), requestID).Return(existing, true)
-	// Reserve / Save / notify НЕ ожидаются.
 
 	id, err := d.svc.CreateOrder(context.Background(), userID, requestID,
 		[]entity.Item{{SKU: "SKU-1", Count: 2}})
@@ -132,8 +140,7 @@ func TestCreateOrder_RejectsEmptyAndDuplicateSKUs(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			d := setup(t) // никаких EXPECT — всё должно упасть до вызовов
-
+			d := setup(t)
 			_, err := d.svc.CreateOrder(context.Background(), userID, requestID, tc.items)
 			require.ErrorIs(t, err, entity.ErrInvalidArgument)
 		})
@@ -146,7 +153,6 @@ func TestCreateOrder_InactiveProduct_NoReservation(t *testing.T) {
 	d.orders.EXPECT().GetRequest(gomock.Any(), requestID).Return(entity.OrderRequest{}, false)
 	d.products.EXPECT().Get(gomock.Any(), "SKU-1").
 		Return(entity.Product{SKU: "SKU-1", Active: false}, nil)
-	// Reserve / Save НЕ ожидаются.
 
 	_, err := d.svc.CreateOrder(context.Background(), userID, requestID,
 		[]entity.Item{{SKU: "SKU-1", Count: 1}})
@@ -160,7 +166,6 @@ func TestCreateOrder_ReserveFailure_NoSave(t *testing.T) {
 	d.products.EXPECT().Get(gomock.Any(), "SKU-1").
 		Return(entity.Product{SKU: "SKU-1", Name: "W", Price: 100, Active: true}, nil)
 	d.stocks.EXPECT().Reserve(gomock.Any(), gomock.Any()).Return(entity.ErrStock)
-	// Save / notify НЕ ожидаются.
 
 	_, err := d.svc.CreateOrder(context.Background(), userID, requestID,
 		[]entity.Item{{SKU: "SKU-1", Count: 1}})
@@ -172,23 +177,19 @@ func TestCreateOrder_OverflowReturnsErrState(t *testing.T) {
 
 	d.orders.EXPECT().GetRequest(gomock.Any(), requestID).Return(entity.OrderRequest{}, false)
 
-	// 5 РАЗНЫХ SKU × 1000 × MaxProductPrice = 5·10^9 > MaxUint32.
 	items := make([]entity.Item, 5)
 	for i := range items {
-		sku := "SKU-" + string(rune('A'+i)) // SKU-A … SKU-E
+		sku := "SKU-" + string(rune('A'+i))
 		items[i] = entity.Item{SKU: sku, Count: 1000}
 		d.products.EXPECT().Get(gomock.Any(), sku).
 			Return(entity.Product{SKU: sku, Name: "W", Price: 1_000_000, Active: true}, nil)
 	}
-	// Reserve / Save НЕ ожидаются — до них не доходит.
 
 	_, err := d.svc.CreateOrder(context.Background(), userID, requestID, items)
 	require.ErrorIs(t, err, entity.ErrState)
 }
 
-// TestCreateOrder_NotifierErrorDoesNotRollback — ошибка notifier не откатывает
-// заказ: он уже сохранён и резерв сделан.
-func TestCreateOrder_NotifierErrorDoesNotRollback(t *testing.T) {
+func TestCreateOrder_OutboxSaveSucceeds(t *testing.T) {
 	d := setup(t)
 
 	d.orders.EXPECT().GetRequest(gomock.Any(), requestID).Return(entity.OrderRequest{}, false)
@@ -196,8 +197,7 @@ func TestCreateOrder_NotifierErrorDoesNotRollback(t *testing.T) {
 		Return(entity.Product{SKU: "SKU-1", Name: "W", Price: 100, Active: true}, nil)
 	d.stocks.EXPECT().Reserve(gomock.Any(), gomock.Any()).Return(nil)
 	d.orders.EXPECT().Save(gomock.Any(), gomock.Any(), requestID, gomock.Any())
-	d.notifier.EXPECT().SendOrderStatusChanged(gomock.Any(), userID, gomock.Any(), "awaiting_payment").
-		Return(errors.New("telegram down"))
+	d.outbox.EXPECT().Save(gomock.Any(), gomock.Any()).Return(nil)
 
 	id, err := d.svc.CreateOrder(context.Background(), userID, requestID,
 		[]entity.Item{{SKU: "SKU-1", Count: 1}})
@@ -205,12 +205,9 @@ func TestCreateOrder_NotifierErrorDoesNotRollback(t *testing.T) {
 	require.NotEmpty(t, id)
 }
 
-// TestCreateOrder_ConcurrentSameKey_OneOrder — 8 параллельных вызовов с одним
-// request_id создают ровно один заказ. Проверяет stateMx вокруг GetRequest+Save.
 func TestCreateOrder_ConcurrentSameKey_OneOrder(t *testing.T) {
 	d := setup(t)
 
-	// Первый вызов видит «не сохранено», остальные — уже есть.
 	var mu sync.Mutex
 	calls := 0
 	d.orders.EXPECT().GetRequest(gomock.Any(), requestID).DoAndReturn(
@@ -221,8 +218,6 @@ func TestCreateOrder_ConcurrentSameKey_OneOrder(t *testing.T) {
 			if calls == 1 {
 				return entity.OrderRequest{}, false
 			}
-			// ВАЖНО: те же Items, что приходят в CreateOrder, иначе Matches
-			// вернёт false → ErrConflict.
 			return entity.OrderRequest{
 				UserID:    userID,
 				RequestID: requestID,
@@ -235,8 +230,7 @@ func TestCreateOrder_ConcurrentSameKey_OneOrder(t *testing.T) {
 		Return(entity.Product{SKU: "SKU-1", Name: "W", Price: 100, Active: true}, nil).Times(1)
 	d.stocks.EXPECT().Reserve(gomock.Any(), gomock.Any()).Return(nil).Times(1)
 	d.orders.EXPECT().Save(gomock.Any(), gomock.Any(), requestID, gomock.Any()).Times(1)
-	d.notifier.EXPECT().SendOrderStatusChanged(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
-		Return(nil).Times(1)
+	d.outbox.EXPECT().Save(gomock.Any(), gomock.Any()).Return(nil).Times(1)
 
 	const n = 8
 	ids := make([]string, n)
@@ -281,7 +275,7 @@ func TestListOrders_DefaultsAndPagination(t *testing.T) {
 		inputLimit uint32
 		expected   int
 	}{
-		{"zero → default 20", 0, 21}, // limit+1 для проверки «есть ещё»
+		{"zero → default 20", 0, 21},
 		{"explicit", 5, 6},
 		{"over max → clamp 100", 200, 101},
 	}
@@ -301,7 +295,6 @@ func TestListOrders_DefaultsAndPagination(t *testing.T) {
 func TestListOrders_TrimsPageAndReturnsCursor(t *testing.T) {
 	d := setup(t)
 
-	// limit+1 = 3, возвращаем 3, но пользователю отдаём 2 + курсор.
 	d.orders.EXPECT().ListByUser(gomock.Any(), userID, "", 3).
 		Return([]entity.Order{{OrderID: "a"}, {OrderID: "b"}, {OrderID: "c"}}, nil)
 
@@ -327,7 +320,6 @@ func TestPayOrder_AlreadyPaid_NoNewCharge(t *testing.T) {
 
 	d.orders.EXPECT().Get(gomock.Any(), orderID).
 		Return(entity.Order{OrderID: orderID, Status: entity.StatusPaid}, nil)
-	// billing / update / notify НЕ ожидаются.
 
 	require.NoError(t, d.svc.PayOrder(context.Background(), orderID))
 }
@@ -342,12 +334,11 @@ func TestPayOrder_CancelledReturnsErrState(t *testing.T) {
 	require.ErrorIs(t, err, entity.ErrState)
 }
 
-// TestPayOrder_Succeeded — startPayment: Update(pending) + CreatePayment +
-// Update(paid) + notify(paid).
 func TestPayOrder_Succeeded(t *testing.T) {
 	d := setup(t)
 	updated := captureUpdate(d)
 
+	var sentExternalID string
 	d.orders.EXPECT().Get(gomock.Any(), orderID).Return(entity.Order{
 		OrderID:          orderID,
 		UserID:           userID,
@@ -355,8 +346,17 @@ func TestPayOrder_Succeeded(t *testing.T) {
 		TotalAmountMinor: 300,
 		Currency:         "RUB",
 	}, nil)
-
-	var sentExternalID string
+	d.orders.EXPECT().Get(gomock.Any(), orderID).DoAndReturn(func(_ context.Context, _ string) (entity.Order, error) {
+		return entity.Order{
+			OrderID:          orderID,
+			UserID:           userID,
+			Status:           entity.StatusPaymentPending,
+			TotalAmountMinor: 300,
+			Currency:         "RUB",
+			Payments:         []entity.PaymentSummary{{ExternalID: sentExternalID, AmountMinor: 300, Currency: "RUB", Status: entity.PaymentStatusPending}},
+			History:          []entity.Transition{{Status: entity.StatusPaymentPending}},
+		}, nil
+	})
 	d.billing.EXPECT().CreatePayment(gomock.Any(), gomock.Any(), userID, uint64(300), "RUB").
 		DoAndReturn(func(_ context.Context, extID, _ string, _ uint64, _ string) (entity.PaymentSummary, error) {
 			sentExternalID = extID
@@ -368,22 +368,21 @@ func TestPayOrder_Succeeded(t *testing.T) {
 				Status:      entity.PaymentStatusSucceeded,
 			}, nil
 		})
-	d.notifier.EXPECT().SendOrderStatusChanged(gomock.Any(), userID, orderID, "paid").Return(nil)
+	d.outbox.EXPECT().Save(gomock.Any(), gomock.Any()).Return(nil)
 
 	require.NoError(t, d.svc.PayOrder(context.Background(), orderID))
 	require.NotEmpty(t, sentExternalID)
 	require.Equal(t, entity.StatusPaid, updated.Status)
 	require.Equal(t, "pm-1", updated.Payments[len(updated.Payments)-1].PaymentID)
 	require.Equal(t, sentExternalID, updated.Payments[len(updated.Payments)-1].ExternalID)
-	require.Len(t, updated.History, 2) // pending, paid
+	require.Len(t, updated.History, 2)
 }
 
-// TestPayOrder_FirstDecline_BackToAwaiting — decline #1: статус возвращается
-// в awaiting, notify НЕ шлётся (только на 3-м отказе — failed).
 func TestPayOrder_FirstDecline_BackToAwaiting(t *testing.T) {
 	d := setup(t)
 	updated := captureUpdate(d)
 
+	var sentExternalID string
 	d.orders.EXPECT().Get(gomock.Any(), orderID).Return(entity.Order{
 		OrderID:          orderID,
 		UserID:           userID,
@@ -391,28 +390,37 @@ func TestPayOrder_FirstDecline_BackToAwaiting(t *testing.T) {
 		TotalAmountMinor: 100,
 		Currency:         "RUB",
 	}, nil)
+	d.orders.EXPECT().Get(gomock.Any(), orderID).DoAndReturn(func(_ context.Context, _ string) (entity.Order, error) {
+		return entity.Order{
+			OrderID:          orderID,
+			UserID:           userID,
+			Status:           entity.StatusPaymentPending,
+			TotalAmountMinor: 100,
+			Currency:         "RUB",
+			Payments:         []entity.PaymentSummary{{ExternalID: sentExternalID, AmountMinor: 100, Currency: "RUB", Status: entity.PaymentStatusPending}},
+			History:          []entity.Transition{{Status: entity.StatusPaymentPending}},
+		}, nil
+	})
 
 	d.billing.EXPECT().CreatePayment(gomock.Any(), gomock.Any(), userID, uint64(100), "RUB").
 		DoAndReturn(func(_ context.Context, extID, _ string, _ uint64, _ string) (entity.PaymentSummary, error) {
+			sentExternalID = extID
 			return entity.PaymentSummary{
 				PaymentID: "pm-1", ExternalID: extID,
 				Status: entity.PaymentStatusDeclined,
 			}, nil
 		})
-	// Release / notify НЕ ожидаются.
+	d.outbox.EXPECT().Save(gomock.Any(), gomock.Any()).Return(nil)
 
 	err := d.svc.PayOrder(context.Background(), orderID)
 	require.ErrorIs(t, err, entity.ErrDeclined)
 	require.Equal(t, entity.StatusAwaitingPayment, updated.Status)
 }
 
-// TestPayOrder_ThirdDecline_FailsAndReleases — резерв возвращается, уходит
-// notify(failed). Используем payment_pending, чтобы пройти через resolvePayment.
 func TestPayOrder_ThirdDecline_FailsAndReleases(t *testing.T) {
 	d := setup(t)
 	updated := captureUpdate(d)
 
-	// Два предыдущих отказа уже в истории.
 	seeded := entity.Order{
 		OrderID:          orderID,
 		UserID:           userID,
@@ -426,7 +434,7 @@ func TestPayOrder_ThirdDecline_FailsAndReleases(t *testing.T) {
 			{ExternalID: "ext-3", Status: entity.PaymentStatusPending},
 		},
 	}
-	d.orders.EXPECT().Get(gomock.Any(), orderID).Return(seeded, nil)
+	d.orders.EXPECT().Get(gomock.Any(), orderID).Return(seeded, nil).Times(2)
 
 	d.billing.EXPECT().GetPayment(gomock.Any(), "ext-3").
 		Return(entity.PaymentSummary{
@@ -434,15 +442,13 @@ func TestPayOrder_ThirdDecline_FailsAndReleases(t *testing.T) {
 			Status: entity.PaymentStatusDeclined,
 		}, nil)
 	d.stocks.EXPECT().Release(gomock.Any(), seeded.Items).Return(nil)
-	d.notifier.EXPECT().SendOrderStatusChanged(gomock.Any(), userID, orderID, "failed").Return(nil)
+	d.outbox.EXPECT().Save(gomock.Any(), gomock.Any()).Return(nil)
 
 	err := d.svc.PayOrder(context.Background(), orderID)
 	require.ErrorIs(t, err, entity.ErrDeclined)
 	require.Equal(t, entity.StatusFailed, updated.Status)
 }
 
-// TestPayOrder_PaymentPending_GetPaymentSucceeds — повтор при pending:
-// GetPayment вернул succeeded без повторного CreatePayment.
 func TestPayOrder_PaymentPending_GetPaymentSucceeds(t *testing.T) {
 	d := setup(t)
 	updated := captureUpdate(d)
@@ -455,21 +461,19 @@ func TestPayOrder_PaymentPending_GetPaymentSucceeds(t *testing.T) {
 		Currency:         "RUB",
 		Payments:         []entity.PaymentSummary{{ExternalID: "ext-1", Status: entity.PaymentStatusPending}},
 	}
-	d.orders.EXPECT().Get(gomock.Any(), orderID).Return(seeded, nil)
+	d.orders.EXPECT().Get(gomock.Any(), orderID).Return(seeded, nil).Times(2)
 
 	d.billing.EXPECT().GetPayment(gomock.Any(), "ext-1").
 		Return(entity.PaymentSummary{
 			PaymentID: "pm-1", ExternalID: "ext-1",
 			Status: entity.PaymentStatusSucceeded,
 		}, nil)
-	d.notifier.EXPECT().SendOrderStatusChanged(gomock.Any(), userID, orderID, "paid").Return(nil)
+	d.outbox.EXPECT().Save(gomock.Any(), gomock.Any()).Return(nil)
 
 	require.NoError(t, d.svc.PayOrder(context.Background(), orderID))
 	require.Equal(t, entity.StatusPaid, updated.Status)
 }
 
-// TestPayOrder_PaymentPending_GetPaymentNotFound_FallbackToCreate — ключевой
-// сценарий UNAVAILABLE: GetPayment не нашёл, CreatePayment с тем же external_id.
 func TestPayOrder_PaymentPending_GetPaymentNotFound_FallbackToCreate(t *testing.T) {
 	d := setup(t)
 	updated := captureUpdate(d)
@@ -482,7 +486,7 @@ func TestPayOrder_PaymentPending_GetPaymentNotFound_FallbackToCreate(t *testing.
 		Currency:         "RUB",
 		Payments:         []entity.PaymentSummary{{ExternalID: "ext-1", Status: entity.PaymentStatusPending}},
 	}
-	d.orders.EXPECT().Get(gomock.Any(), orderID).Return(seeded, nil)
+	d.orders.EXPECT().Get(gomock.Any(), orderID).Return(seeded, nil).Times(2)
 
 	d.billing.EXPECT().GetPayment(gomock.Any(), "ext-1").
 		Return(entity.PaymentSummary{}, status.Error(codes.NotFound, "no payment"))
@@ -491,15 +495,12 @@ func TestPayOrder_PaymentPending_GetPaymentNotFound_FallbackToCreate(t *testing.
 			PaymentID: "pm-1", ExternalID: "ext-1",
 			Status: entity.PaymentStatusSucceeded,
 		}, nil)
-	d.notifier.EXPECT().SendOrderStatusChanged(gomock.Any(), userID, orderID, "paid").Return(nil)
+	d.outbox.EXPECT().Save(gomock.Any(), gomock.Any()).Return(nil)
 
 	require.NoError(t, d.svc.PayOrder(context.Background(), orderID))
 	require.Equal(t, entity.StatusPaid, updated.Status)
 }
 
-// TestPayOrder_BillingError_StaysPending — транспортный сбой (timeout,
-// unavailable) не меняет статус: заказ остаётся payment_pending, external_id
-// сохранён для повтора.
 func TestPayOrder_BillingError_StaysPending(t *testing.T) {
 	d := setup(t)
 	updated := captureUpdate(d)
@@ -524,14 +525,12 @@ func TestPayOrder_BillingError_StaysPending(t *testing.T) {
 	require.NotEmpty(t, updated.Payments[0].ExternalID)
 }
 
-// TestPayOrder_PaymentPendingWithoutRecord — защита от рассинхронизации.
 func TestPayOrder_PaymentPendingWithoutRecord(t *testing.T) {
 	d := setup(t)
 
 	d.orders.EXPECT().Get(gomock.Any(), orderID).Return(entity.Order{
 		OrderID: orderID,
 		Status:  entity.StatusPaymentPending,
-		// Payments пусто
 	}, nil)
 
 	err := d.svc.PayOrder(context.Background(), orderID)
@@ -573,14 +572,12 @@ func TestCancelOrder_Success(t *testing.T) {
 		Items:   items,
 	}, nil)
 	d.stocks.EXPECT().Release(gomock.Any(), items).Return(nil)
-	d.notifier.EXPECT().SendOrderStatusChanged(gomock.Any(), userID, orderID, "cancelled").Return(nil)
+	d.outbox.EXPECT().Save(gomock.Any(), gomock.Any()).Return(nil)
 
 	require.NoError(t, d.svc.CancelOrder(context.Background(), orderID))
 	require.Equal(t, entity.StatusCancelled, updated.Status)
 }
 
-// TestCancelOrder_ReleaseFailure_StateUnchanged — если Release упал, заказ
-// не переводится в cancelled и notify не шлётся.
 func TestCancelOrder_ReleaseFailure_StateUnchanged(t *testing.T) {
 	d := setup(t)
 
@@ -592,7 +589,6 @@ func TestCancelOrder_ReleaseFailure_StateUnchanged(t *testing.T) {
 		Items:   items,
 	}, nil)
 	d.stocks.EXPECT().Release(gomock.Any(), items).Return(errors.New("stock down"))
-	// Update / notify НЕ ожидаются.
 
 	err := d.svc.CancelOrder(context.Background(), orderID)
 	require.Error(t, err)

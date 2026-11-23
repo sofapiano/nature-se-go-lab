@@ -159,9 +159,11 @@ func (s *Service) ListOrders(ctx context.Context, userID, afterOrderID string, l
 func (s *Service) PayOrder(ctx context.Context, orderID string) error {
 	orderID = entity.CanonicalID(orderID)
 
-	// Фаза 1: Короткая транзакция для фиксации намерения
 	var externalID string
+	var isNewPayment bool
 	var o entity.Order
+
+	// Фаза 1: Короткая транзакция для фиксации намерения или получения состояния
 	err := s.transactor.WithTx(ctx, func(txCtx context.Context) error {
 		var err error
 		o, err = s.orders.Get(txCtx, orderID)
@@ -171,12 +173,13 @@ func (s *Service) PayOrder(ctx context.Context, orderID string) error {
 
 		switch o.Status {
 		case entity.StatusPaid:
-			return nil // Идемпотентность
+			return nil // Уже оплачен, идемпотентность
 		case entity.StatusPaymentPending:
 			if len(o.Payments) == 0 {
 				return status.Error(codes.Internal, "payment_pending without a payment record")
 			}
 			externalID = o.Payments[len(o.Payments)-1].ExternalID
+			isNewPayment = false
 			return nil
 		case entity.StatusAwaitingPayment:
 			externalID = entity.NewUUIDv7()
@@ -194,6 +197,7 @@ func (s *Service) PayOrder(ctx context.Context, orderID string) error {
 			})
 			o.UpdatedAt = now
 			s.orders.Update(txCtx, o)
+			isNewPayment = true
 			return nil
 		default:
 			return fmt.Errorf("%w: cannot pay order in status %s", entity.ErrState, o.Status)
@@ -207,18 +211,20 @@ func (s *Service) PayOrder(ctx context.Context, orderID string) error {
 		return nil
 	}
 
-	// Фаза 2: Сетевой вызов ВНЕ транзакции (Золотое правило!)
-	resp, err := s.billing.GetPayment(ctx, externalID)
-	if err != nil {
-		if status.Code(err) == codes.NotFound {
-			// Платежа нет в биллинге, создаём его (идемпотентно по external_id)
-			resp, err = s.billing.CreatePayment(ctx, externalID, o.UserID, uint64(o.TotalAmountMinor), o.Currency)
-			if err != nil {
-				return err // Заказ остаётся в payment_pending, следующий вызов попробует снова
+	// Фаза 2: Сетевой вызов ВНЕ транзакции
+	var resp entity.PaymentSummary
+	if isNewPayment {
+		resp, err = s.billing.CreatePayment(ctx, externalID, o.UserID, uint64(o.TotalAmountMinor), o.Currency)
+	} else {
+		resp, err = s.billing.GetPayment(ctx, externalID)
+		if err != nil {
+			if status.Code(err) == codes.NotFound {
+				resp, err = s.billing.CreatePayment(ctx, externalID, o.UserID, uint64(o.TotalAmountMinor), o.Currency)
 			}
-		} else {
-			return err
 		}
+	}
+	if err != nil {
+		return err // Заказ остаётся в payment_pending, следующий вызов попробует снова
 	}
 
 	// Фаза 3: Новая транзакция для сохранения результата
@@ -293,6 +299,18 @@ func (s *Service) applyPaymentResult(ctx context.Context, o entity.Order, resp e
 			o.History = append(o.History, entity.Transition{Status: entity.StatusAwaitingPayment, OccurredAt: now})
 			o.UpdatedAt = now
 			s.orders.Update(ctx, o)
+
+			outboxEvent := entity.OutboxEvent{
+				EventID:   entity.NewUUIDv7(),
+				EventType: "order_status_changed",
+				OrderID:   o.OrderID,
+				UserID:    o.UserID,
+				Status:    string(o.Status),
+				Payload:   fmt.Sprintf(`{"order_id": "%s", "status": "%s", "payment_status": "%s"}`, o.OrderID, o.Status, resp.Status),
+			}
+			if err := s.outbox.Save(ctx, outboxEvent); err != nil {
+				return fmt.Errorf("save outbox event: %w", err)
+			}
 		}
 		return fmt.Errorf("%w: payment declined", entity.ErrDeclined)
 
