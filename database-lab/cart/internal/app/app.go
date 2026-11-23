@@ -61,9 +61,9 @@ func Run() error {
 	defer func() { _ = lomsConn.Close() }()
 
 	lomsClient := lomsgrpc.New(lomsConn)
-	repo := cartrepo.New()
-	checkoutRepo := checkoutrepo.New()
-	svc := cartusecase.New(repo, checkoutRepo, lomsClient, lomsClient)
+	cartRepo := cartrepo.NewPostgres(pool, transactor)
+	checkoutRepo := checkoutrepo.NewPostgres(pool)
+	svc := cartusecase.New(cartRepo, checkoutRepo, lomsClient, lomsClient)
 
 	validator, err := protovalidate.New()
 	if err != nil {

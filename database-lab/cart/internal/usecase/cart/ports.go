@@ -21,7 +21,7 @@ type cartRepository interface {
 // checkoutRepository — идемпотентность checkout: request_id → order_id.
 type checkoutRepository interface {
 	Get(ctx context.Context, requestID string) (string, bool)
-	Save(ctx context.Context, requestID, orderID string)
+	Save(ctx context.Context, requestID, orderID string) error
 }
 
 // catalogClient — источник name/price/active для позиций корзины.

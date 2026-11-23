@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"sync"
+	"fmt"
 
 	"github.com/igoroutine-courses/microservices.ecommerce.cart/internal/entity"
 )
@@ -110,7 +111,12 @@ func (s *Service) CheckoutCart(ctx context.Context, userID, requestID string) (s
 		return "", err
 	}
 
-	s.checkout.Save(ctx, requestID, orderID)
+	if err := s.checkout.Save(ctx, requestID, orderID); err != nil {
+		// Если не удалось сохранить checkout, корзина уже очищена, но заказ создан.
+		// При следующем вызове Get не найдёт запись, и мы снова вызовем LOMS.
+		// LOMS вернёт ошибку идемпотентности (заказ уже создан), что корректно.
+		return "", fmt.Errorf("save checkout: %w", err)
+	}
 
 	if err := s.carts.Clear(ctx, userID); err != nil {
 		return "", err
