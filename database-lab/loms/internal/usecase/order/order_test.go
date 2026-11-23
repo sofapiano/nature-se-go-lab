@@ -109,6 +109,19 @@ func TestCreateOrder_IdempotentReplay_ReturnsSameOrder_NoReservation(t *testing.
 	require.Equal(t, orderID, id)
 }
 
+func TestCreateOrder_UnknownProduct_NoReservation(t *testing.T) {
+	d := setup(t)
+
+	d.orders.EXPECT().GetRequest(gomock.Any(), requestID).Return(entity.OrderRequest{}, false)
+	d.products.EXPECT().Get(gomock.Any(), "SKU-1").
+		Return(entity.Product{}, entity.ErrNotFound)
+	// Reserve / Save НЕ ожидаются.
+
+	_, err := d.svc.CreateOrder(context.Background(), userID, requestID,
+		[]entity.Item{{SKU: "SKU-1", Count: 1}})
+	require.ErrorIs(t, err, entity.ErrNotFound)
+}
+
 func TestCreateOrder_ConflictOnDifferentPayload(t *testing.T) {
 	d := setup(t)
 

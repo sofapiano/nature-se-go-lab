@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/pashagolub/pgxmock/v4"
+	"github.com/pashagolub/pgxmock/v6"
 	"github.com/stretchr/testify/require"
 
 	"github.com/igoroutine-courses/microservices.ecommerce.cart/internal/entity"

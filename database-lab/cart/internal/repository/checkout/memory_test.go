@@ -19,7 +19,9 @@ func TestSave_AndGet(t *testing.T) {
 	r := New()
 	ctx := context.Background()
 
-	r.Save(ctx, "req-1", "order-1")
+	err := r.Save(ctx, "req-1", "order-1")
+	require.NoError(t, err)
+
 	got, ok := r.Get(ctx, "req-1")
 	require.True(t, ok)
 	require.Equal(t, "order-1", got)
@@ -29,8 +31,8 @@ func TestSave_IsolatedByRequestID(t *testing.T) {
 	r := New()
 	ctx := context.Background()
 
-	r.Save(ctx, "req-1", "order-1")
-	r.Save(ctx, "req-2", "order-2")
+	require.NoError(t, r.Save(ctx, "req-1", "order-1"))
+	require.NoError(t, r.Save(ctx, "req-2", "order-2"))
 
 	got1, _ := r.Get(ctx, "req-1")
 	got2, _ := r.Get(ctx, "req-2")

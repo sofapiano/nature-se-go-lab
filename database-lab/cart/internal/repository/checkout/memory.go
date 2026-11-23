@@ -24,9 +24,10 @@ func (r *Repository) Get(_ context.Context, requestID string) (string, bool) {
 	return orderID, ok
 }
 
-func (r *Repository) Save(_ context.Context, requestID, orderID string) {
+func (r *Repository) Save(_ context.Context, requestID, orderID string) error {
 	r.mx.Lock()
 	defer r.mx.Unlock()
 
 	r.requests[requestID] = orderID
+	return nil
 }

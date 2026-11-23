@@ -89,6 +89,56 @@ func TestAddItem_PassesStatusErrorVerbatim(t *testing.T) {
 	require.Equal(t, codes.Unavailable, status.Code(err))
 }
 
+func TestAddItem_ProductInactiveMapsToFailedPrecondition(t *testing.T) {
+	c, svc := newController(t)
+	svc.EXPECT().AddItem(gomock.Any(), validUser, validSKU, uint32(1)).Return(entity.ErrProductInactive)
+
+	_, err := c.AddItem(context.Background(), &cartpb.AddItemRequest{
+		UserId: validUser, Sku: validSKU, Count: 1,
+	})
+	require.Equal(t, codes.FailedPrecondition, status.Code(err))
+}
+
+func TestAddItem_ConflictMapsToFailedPrecondition(t *testing.T) {
+	c, svc := newController(t)
+	svc.EXPECT().AddItem(gomock.Any(), validUser, validSKU, uint32(1)).Return(entity.ErrConflict)
+
+	_, err := c.AddItem(context.Background(), &cartpb.AddItemRequest{
+		UserId: validUser, Sku: validSKU, Count: 1,
+	})
+	require.Equal(t, codes.FailedPrecondition, status.Code(err))
+}
+
+func TestSetItemQuantity_MapsToService(t *testing.T) {
+	c, svc := newController(t)
+	svc.EXPECT().SetItemQuantity(gomock.Any(), validUser, validSKU, uint32(5)).Return(nil)
+
+	_, err := c.SetItemQuantity(context.Background(), &cartpb.SetItemQuantityRequest{
+		UserId: validUser, Sku: validSKU, Count: 5,
+	})
+	require.NoError(t, err)
+}
+
+func TestDeleteItem_MapsToService(t *testing.T) {
+	c, svc := newController(t)
+	svc.EXPECT().DeleteItem(gomock.Any(), validUser, validSKU).Return(nil)
+
+	_, err := c.DeleteItem(context.Background(), &cartpb.DeleteItemRequest{
+		UserId: validUser, Sku: validSKU,
+	})
+	require.NoError(t, err)
+}
+
+func TestClearCart_MapsToService(t *testing.T) {
+	c, svc := newController(t)
+	svc.EXPECT().ClearCart(gomock.Any(), validUser).Return(nil)
+
+	_, err := c.ClearCart(context.Background(), &cartpb.ClearCartRequest{
+		UserId: validUser,
+	})
+	require.NoError(t, err)
+}
+
 func TestListCart_EmptyIsNotError(t *testing.T) {
 	c, svc := newController(t)
 	svc.EXPECT().ListCart(gomock.Any(), validUser).Return([]entity.Item(nil), uint32(0), nil)

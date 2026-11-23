@@ -362,3 +362,33 @@ func TestAddItem_Concurrent_AllSucceed(t *testing.T) {
 		require.NoError(t, err, "goroutine %d", i)
 	}
 }
+
+func TestCheckout_SaveError_Propagates(t *testing.T) {
+	d := setup(t)
+	d.checkout.EXPECT().Get(gomock.Any(), "req-1").Return("", false)
+	cart := entity.Cart{UserID: "user-1", Items: []entity.Item{{SKU: "SKU-1", Count: 1}}}
+	d.carts.EXPECT().Get(gomock.Any(), "user-1").Return(cart, nil)
+	d.loms.EXPECT().CreateOrder(gomock.Any(), "user-1", "req-1", gomock.Any()).Return("order-1", nil)
+
+	saveErr := errors.New("db down")
+	d.checkout.EXPECT().Save(gomock.Any(), "req-1", "order-1").Return(saveErr)
+
+	_, err := d.svc.CheckoutCart(context.Background(), "user-1", "req-1")
+	require.ErrorIs(t, err, saveErr)
+	require.Contains(t, err.Error(), "save checkout")
+}
+
+func TestCheckout_ClearError_Propagates(t *testing.T) {
+	d := setup(t)
+	d.checkout.EXPECT().Get(gomock.Any(), "req-1").Return("", false)
+	cart := entity.Cart{UserID: "user-1", Items: []entity.Item{{SKU: "SKU-1", Count: 1}}}
+	d.carts.EXPECT().Get(gomock.Any(), "user-1").Return(cart, nil)
+	d.loms.EXPECT().CreateOrder(gomock.Any(), "user-1", "req-1", gomock.Any()).Return("order-1", nil)
+	d.checkout.EXPECT().Save(gomock.Any(), "req-1", "order-1").Return(nil)
+
+	clearErr := errors.New("db down")
+	d.carts.EXPECT().Clear(gomock.Any(), "user-1").Return(clearErr)
+
+	_, err := d.svc.CheckoutCart(context.Background(), "user-1", "req-1")
+	require.ErrorIs(t, err, clearErr)
+}
