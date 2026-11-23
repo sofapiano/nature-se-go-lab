@@ -38,8 +38,6 @@ func TestBindTelegram_Success(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestBindTelegram_ErrorMapping — доменные ошибки превращаются в правильные
-// gRPC-коды. Это критично: gateway по коду выбирает HTTP-статус.
 func TestBindTelegram_ErrorMapping(t *testing.T) {
 	cases := []struct {
 		name string
@@ -68,6 +66,7 @@ func TestBindTelegram_ErrorMapping(t *testing.T) {
 func TestSendNotification_Success(t *testing.T) {
 	c, svc := setup(t)
 	svc.EXPECT().AcceptOrderStatusChanged(gomock.Any(), gomock.Any(), orderID, userID, "paid").Return(nil)
+
 	_, err := c.SendOrderStatusChangedNotification(context.Background(),
 		&notifierpb.OrderStatusChangedNotificationRequest{
 			OrderId: orderID, UserId: userID, Status: "paid",
@@ -78,7 +77,7 @@ func TestSendNotification_Success(t *testing.T) {
 func TestSendNotification_UnavailableMapsToUnavailable(t *testing.T) {
 	c, svc := setup(t)
 	svc.EXPECT().AcceptOrderStatusChanged(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
-    Return(entity.ErrUnavailable)
+		Return(entity.ErrUnavailable)
 
 	_, err := c.SendOrderStatusChangedNotification(context.Background(),
 		&notifierpb.OrderStatusChangedNotificationRequest{

@@ -54,7 +54,7 @@ func (w *InboxWorker) processBatch(ctx context.Context) {
 	}
 
 	for _, ev := range events {
-		// ⚠️ Золотое правило: вызов Telegram ВНЕ транзакции БД.
+		// вызов Telegram ВНЕ транзакции БД.
 		err := w.delivery.SendOrderStatusChanged(ctx, ev.OrderID, ev.UserID, ev.Status)
 		if err != nil {
 			backoff := min(60, 5*ev.Attempts)

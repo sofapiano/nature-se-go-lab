@@ -71,8 +71,8 @@ func (r *postgresRepository) Claim(ctx context.Context, limit int) ([]entity.Inb
 	return events, rows.Err()
 }
 
-// MarkProcessed закрывает задачу. Условие lease_until = $2 — fencing-токен:
-// если аренду уже перехватил другой воркер, наша запись не применится.
+// MarkProcessed закрывает задачу. lease_until = $2 — fencing-токен:
+// если аренду перехватил другой воркер, наша запись не применится.
 func (r *postgresRepository) MarkProcessed(ctx context.Context, eventID string, lease time.Time) error {
 	exec := db.GetExecutor(ctx, r.pool)
 	_, err := exec.Exec(ctx, `

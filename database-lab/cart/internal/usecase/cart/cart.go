@@ -3,9 +3,9 @@ package cart
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
-	"fmt"
 
 	"github.com/igoroutine-courses/microservices.ecommerce.cart/internal/entity"
 )
