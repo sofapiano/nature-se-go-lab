@@ -18,8 +18,10 @@ import (
 	stockscontroller "github.com/igoroutine-courses/microservices.ecommerce.loms/internal/controller/stocks"
 	"github.com/igoroutine-courses/microservices.ecommerce.loms/internal/db"
 	orderrepo "github.com/igoroutine-courses/microservices.ecommerce.loms/internal/repository/order"
+	outboxrepo "github.com/igoroutine-courses/microservices.ecommerce.loms/internal/repository/outbox"
 	productrepo "github.com/igoroutine-courses/microservices.ecommerce.loms/internal/repository/product"
 	stocksrepo "github.com/igoroutine-courses/microservices.ecommerce.loms/internal/repository/stocks"
+	"github.com/igoroutine-courses/microservices.ecommerce.loms/internal/worker"
 	orderusecase "github.com/igoroutine-courses/microservices.ecommerce.loms/internal/usecase/order"
 	productusecase "github.com/igoroutine-courses/microservices.ecommerce.loms/internal/usecase/product"
 	stocksusecase "github.com/igoroutine-courses/microservices.ecommerce.loms/internal/usecase/stocks"
@@ -32,8 +34,7 @@ const shutdownTimeout = 10 * time.Second
 
 func Run(ctx context.Context, cfg config.Config) error {
 	pool, err := db.NewPool(ctx, db.Config{
-		DSN: fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=disable",
-			cfg.PG.User, cfg.PG.Password, cfg.PG.Host, cfg.PG.Port, cfg.PG.DB),
+		DSN:             fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=disable", cfg.PG.User, cfg.PG.Password, cfg.PG.Host, cfg.PG.Port, cfg.PG.DB),
 		MaxConns:        10,
 		MinConns:        2,
 		MaxConnLifetime: 30 * time.Minute,
@@ -77,15 +78,18 @@ func Run(ctx context.Context, cfg config.Config) error {
 	defer func() { _ = notifierConn.Close() }()
 	notifierClient := notifieradapter.New(notifierConn)
 
-	// используем Postgres и передаём transactor
-	orderRepository := orderrepo.NewPostgres(pool)
+	// Инициализируем репозитории для заказов и outbox
+	outboxRepo := outboxrepo.NewPostgres(pool)
+	orderRepository := orderrepo.NewPostgres(pool) // <-- ВОТ ЭТОЙ СТРОКИ НЕ ХВАТАЛО!
+
 	orderService := orderusecase.New(
 		orderRepository,
 		productRepository,
 		stocksRepository,
 		billingClient,
 		notifierClient,
-		transactor, // <-- ДОБАВЛЕНО
+		transactor,
+		outboxRepo,
 	)
 	orderController := ordercontroller.New(orderService)
 
@@ -98,6 +102,10 @@ func Run(ctx context.Context, cfg config.Config) error {
 	if err != nil {
 		return fmt.Errorf("listen on port %s: %w", cfg.GRPC.Port, err)
 	}
+
+	// Запускаем фоновый worker для outbox
+	outboxWorker := worker.NewOutboxWorker(outboxRepo, notifierClient, 2*time.Second, 10)
+	go outboxWorker.Start(ctx)
 
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- server.Serve(listener) }()

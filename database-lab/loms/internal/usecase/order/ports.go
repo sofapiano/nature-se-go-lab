@@ -34,4 +34,8 @@ type (
 	notificationClient interface {
 		SendOrderStatusChanged(ctx context.Context, userID, orderID, status string) error
 	}
+
+	outboxRepository interface {
+		Save(ctx context.Context, event entity.OutboxEvent) error
+	}
 )

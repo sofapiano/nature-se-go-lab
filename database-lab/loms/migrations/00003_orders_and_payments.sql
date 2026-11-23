@@ -59,7 +59,7 @@ CREATE TABLE IF NOT EXISTS loms.payments (
 CREATE INDEX idx_payments_order_id ON loms.payments(order_id);
 CREATE INDEX idx_payments_external_id ON loms.payments(external_id);
 
--- Таблица outbox (подготовка к Этапу 7)
+-- Таблица outbox
 CREATE TABLE IF NOT EXISTS loms.outbox (
     event_id VARCHAR(255) PRIMARY KEY,
     event_type VARCHAR(100) NOT NULL,

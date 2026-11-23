@@ -27,6 +27,7 @@ type Service struct {
 	billing  billingClient
 	notifier notificationClient
 	transactor db.Transactor
+	outbox     outboxRepository
 }
 
 func New(
@@ -36,6 +37,7 @@ func New(
 	billing billingClient,
 	notifier notificationClient,
 	transactor db.Transactor,
+	outbox     outboxRepository,
 ) *Service {
 	return &Service{
 		orders:   orders,
@@ -44,6 +46,7 @@ func New(
 		billing:  billing,
 		notifier: notifier,
 		transactor: transactor,
+		outbox:     outbox,
 	}
 }
 
@@ -98,6 +101,19 @@ func (s *Service) CreateOrder(ctx context.Context, userID, requestID string, in 
 			UpdatedAt: now,
 		}
 		s.orders.Save(txCtx, order, requestID, items)
+
+		outboxEvent := entity.OutboxEvent{
+			EventID:   entity.NewUUIDv7(),
+			EventType: "order_status_changed",
+			OrderID:   newOrderID,
+			UserID:    userID,
+			Status:    "awaiting_payment",
+			Payload:   fmt.Sprintf(`{"order_id": "%s", "status": "awaiting_payment"}`, newOrderID),
+		}
+		if err := s.outbox.Save(txCtx, outboxEvent); err != nil {
+			return fmt.Errorf("save outbox event: %w", err)
+		}
+
 		orderID = newOrderID
 		return nil
 	})
@@ -105,9 +121,6 @@ func (s *Service) CreateOrder(ctx context.Context, userID, requestID string, in 
 	if err != nil {
 		return "", err
 	}
-
-	// Уведомление ВНЕ транзакции (в Этапе 7 перенесём в outbox)
-	go s.notifyOrderStatus(context.Background(), userID, orderID, "awaiting_payment")
 
 	return orderID, nil
 }
@@ -292,7 +305,19 @@ func (s *Service) applyPaymentResult(ctx context.Context, o entity.Order, resp e
 		o.History = append(o.History, entity.Transition{Status: entity.StatusPaid, OccurredAt: now})
 		o.UpdatedAt = now
 		s.orders.Update(ctx, o)
-		go s.notifyOrderStatus(context.Background(), o.UserID, o.OrderID, "paid")
+
+		outboxEvent := entity.OutboxEvent{
+			EventID:   entity.NewUUIDv7(),
+			EventType: "order_status_changed",
+			OrderID:   o.OrderID,
+			UserID:    o.UserID,
+			Status:    string(o.Status),
+			Payload:   fmt.Sprintf(`{"order_id": "%s", "status": "%s", "payment_status": "%s"}`, o.OrderID, o.Status, resp.Status),
+		}
+		if err := s.outbox.Save(ctx, outboxEvent); err != nil {
+			return fmt.Errorf("save outbox event: %w", err)
+		}
+
 		return nil
 
 	case entity.PaymentStatusDeclined:
@@ -304,7 +329,17 @@ func (s *Service) applyPaymentResult(ctx context.Context, o entity.Order, resp e
 			if err := s.stocks.Release(ctx, o.Items); err != nil {
 				slog.ErrorContext(ctx, "release stock on failure", slog.String("order_id", o.OrderID), slog.Any("error", err))
 			}
-			go s.notifyOrderStatus(context.Background(), o.UserID, o.OrderID, "failed")
+			outboxEvent := entity.OutboxEvent{
+				EventID:   entity.NewUUIDv7(),
+				EventType: "order_status_changed",
+				OrderID:   o.OrderID,
+				UserID:    o.UserID,
+				Status:    string(o.Status),
+				Payload:   fmt.Sprintf(`{"order_id": "%s", "status": "%s", "payment_status": "%s"}`, o.OrderID, o.Status, resp.Status),
+			}
+			if err := s.outbox.Save(ctx, outboxEvent); err != nil {
+				return fmt.Errorf("save outbox event: %w", err)
+			}
 		} else {
 			o.Status = entity.StatusAwaitingPayment
 			o.History = append(o.History, entity.Transition{Status: entity.StatusAwaitingPayment, OccurredAt: now})
@@ -354,7 +389,18 @@ func (s *Service) CancelOrder(ctx context.Context, orderID string) error {
 		o.UpdatedAt = now
 		s.orders.Update(txCtx, o)
 
-		go s.notifyOrderStatus(context.Background(), o.UserID, orderID, "cancelled")
+		outboxEvent := entity.OutboxEvent{
+			EventID:   entity.NewUUIDv7(),
+			EventType: "order_status_changed",
+			OrderID:   o.OrderID,
+			UserID:    o.UserID,
+			Status:    "cancelled",
+			Payload:   fmt.Sprintf(`{"order_id": "%s", "status": "cancelled"}`, o.OrderID),
+		}
+		if err := s.outbox.Save(txCtx, outboxEvent); err != nil {
+			return fmt.Errorf("save outbox event: %w", err)
+		}
+
 		return nil
 	})
 }
