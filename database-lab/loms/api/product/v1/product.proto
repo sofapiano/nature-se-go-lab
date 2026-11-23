@@ -8,8 +8,58 @@ import "google/protobuf/empty.proto";
 import "buf/validate/validate.proto";
 
 service ProductService {
-//  rpc CreateProduct(...) returns (...);
-//  rpc GetProduct(...) returns (...);
-//  rpc ListProducts(...) returns (...);
-//  rpc UpdateProduct(...) returns (...);
+  rpc CreateProduct(CreateProductRequest) returns (CreateProductResponse);
+  rpc GetProduct(GetProductRequest) returns (GetProductResponse);
+  rpc ListProducts(ListProductsRequest) returns (ListProductsResponse);
+  rpc UpdateProduct(UpdateProductRequest) returns (google.protobuf.Empty);
+}
+
+// Product — товар в списке каталога.
+message Product {
+  string sku = 1 [json_name = "sku"];
+  string name = 2 [json_name = "name"];
+  uint32 price = 3 [json_name = "price"];
+  bool active = 4 [json_name = "active"];
+}
+
+message CreateProductRequest {
+  string sku = 1 [json_name = "sku", (buf.validate.field).string = {min_len: 1, max_len: 64, pattern: "^[A-Za-z0-9][A-Za-z0-9_-]*$"}];
+  string name = 2 [json_name = "name", (buf.validate.field).string = {min_len: 1, max_len: 255, pattern: "\\S"}];
+  uint32 price = 3 [json_name = "price", (buf.validate.field).uint32 = {gte: 1, lte: 1000000}];
+}
+
+// CreateProductResponse возвращает SKU в каноническом (верхнем) регистре:
+// gateway берёт его для заголовка Location.
+message CreateProductResponse {
+  string sku = 1 [json_name = "sku"];
+}
+
+message GetProductRequest {
+  string sku = 1 [json_name = "sku", (buf.validate.field).string = {min_len: 1, max_len: 64, pattern: "^[A-Za-z0-9][A-Za-z0-9_-]*$"}];
+}
+
+// GetProductResponse намеренно «плоский»: фронтенд и тесты ждут поля товара
+// на верхнем уровне JSON, а не во вложенном объекте.
+message GetProductResponse {
+  string sku = 1 [json_name = "sku"];
+  string name = 2 [json_name = "name"];
+  uint32 price = 3 [json_name = "price"];
+  bool active = 4 [json_name = "active"];
+}
+
+message ListProductsRequest {
+  string after_sku = 1 [json_name = "after_sku", (buf.validate.field) = {ignore: IGNORE_IF_ZERO_VALUE, string: {min_len: 1, max_len: 64, pattern: "^[A-Za-z0-9][A-Za-z0-9_-]*$"}}];
+  uint32 limit = 2 [json_name = "limit", (buf.validate.field).uint32.lte = 100];
+}
+
+message ListProductsResponse {
+  repeated Product products = 1 [json_name = "products"];
+  string next_after_sku = 2 [json_name = "next_after_sku"];
+}
+
+message UpdateProductRequest {
+  string sku = 1 [json_name = "sku", (buf.validate.field).string = {min_len: 1, max_len: 64, pattern: "^[A-Za-z0-9][A-Za-z0-9_-]*$"}];
+  string name = 2 [json_name = "name", (buf.validate.field).string = {min_len: 1, max_len: 255, pattern: "\\S"}];
+  uint32 price = 3 [json_name = "price", (buf.validate.field).uint32 = {gte: 1, lte: 1000000}];
+  bool active = 4 [json_name = "active"];
 }

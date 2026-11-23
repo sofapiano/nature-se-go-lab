@@ -7,3 +7,10 @@ var (
 	ErrUnavailable = errors.New("telegram unavailable")
 	ErrDependency  = errors.New("telegram request failed")
 )
+
+// Binding — связка «пользователь → чат». chat_id храним строкой: группы
+// получают отрицательные id, а int64-диапазон в тестах — часть контракта.
+type Binding struct {
+	UserID string
+	ChatID string
+}

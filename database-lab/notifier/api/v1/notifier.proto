@@ -7,4 +7,21 @@ option go_package = "github.com/igoroutine-courses/microservices.ecommerce.pkg/g
 import "google/protobuf/empty.proto";
 import "buf/validate/validate.proto";
 
-service Notifier {}
+service Notifier {
+  rpc BindTelegram(BindTelegramRequest) returns (google.protobuf.Empty);
+  rpc SendOrderStatusChangedNotification(OrderStatusChangedNotificationRequest) returns (google.protobuf.Empty);
+}
+
+message BindTelegramRequest {
+  string user_id = 1 [json_name = "user_id", (buf.validate.field).string = {uuid: true, pattern: "(?i)^.{14}7.{4}[89ab]"}];
+  // chat_id — строка из десятичных цифр, может быть отрицательным (группы).
+  // Регулярка отсекает мусор на границе; то, что значение ненулевое и влезает
+  // в int64, проверяет usecase: это уже бизнес-инвариант, а не формат.
+  string chat_id = 2 [json_name = "chat_id", (buf.validate.field).string = {min_len: 1, max_len: 32, pattern: "^-?[0-9]+$"}];
+}
+
+message OrderStatusChangedNotificationRequest {
+  string order_id = 1 [json_name = "order_id", (buf.validate.field).string = {min_len: 1}];
+  string user_id  = 2 [json_name = "user_id",  (buf.validate.field).string = {min_len: 1}];
+  string status   = 3 [json_name = "status",   (buf.validate.field).string = {min_len: 1}];
+}
