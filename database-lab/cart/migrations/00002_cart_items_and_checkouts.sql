@@ -22,8 +22,6 @@ CREATE TABLE IF NOT EXISTS cart.checkouts (
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_checkouts_user_id ON cart.checkouts(user_id);
-
 -- +goose StatementEnd
 
 -- +goose Down

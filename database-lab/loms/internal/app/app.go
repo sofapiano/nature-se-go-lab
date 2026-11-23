@@ -28,6 +28,7 @@ import (
 	lomspb "github.com/igoroutine-courses/microservices.ecommerce.pkg/generated/loms/api/loms/v1"
 	productpb "github.com/igoroutine-courses/microservices.ecommerce.pkg/generated/loms/api/product/v1"
 	stockspb "github.com/igoroutine-courses/microservices.ecommerce.pkg/generated/loms/api/stocks/v1"
+	"github.com/igoroutine-courses/microservices.ecommerce.loms/migrations"
 )
 
 const shutdownTimeout = 10 * time.Second
@@ -44,7 +45,7 @@ func Run(ctx context.Context, cfg config.Config) error {
 	}
 	defer pool.Close()
 
-	if err := db.RunMigrations(ctx, pool, "loms", "migrations"); err != nil {
+	if err := db.RunMigrations(ctx, pool, "loms", migrations.FS); err != nil {
 		return fmt.Errorf("run migrations: %w", err)
 	}
 

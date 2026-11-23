@@ -117,6 +117,9 @@ func (b *backend) Call(ctx context.Context, path string, raw json.RawMessage) (j
 	case "/v1/notifications/telegram/bind":
 		return unary(ctx, raw, &notifierpb.BindTelegramRequest{}, b.notifier.BindTelegram)
 
+	case "/v1/notifications/send":
+		return unary(ctx, raw, &notifierpb.OrderStatusChangedNotificationRequest{}, b.notifier.SendOrderStatusChangedNotification)
+
 	default:
 		return nil, &httpapi.Error{Code: httpapi.Unimplemented, Message: "not implemented"}
 	}

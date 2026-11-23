@@ -4,7 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"os"
+	"io/fs"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/jackc/pgx/v5/stdlib" // регистрирует драйвер "pgx" для database/sql
@@ -13,7 +13,8 @@ import (
 )
 
 // RunMigrations безопасно применяет миграции с использованием блокировки сессии.
-func RunMigrations(ctx context.Context, pool *pgxpool.Pool, serviceName, migrationsDir string) error {
+// migrations — файловая система с .sql файлами (обычно embed.FS сервиса).
+func RunMigrations(ctx context.Context, pool *pgxpool.Pool, serviceName string, migrations fs.FS) error {
 	lockID := generateStableLockID(serviceName)
 
 	// В goose v3.30 таймауты передаются как uint64 (секунды): 5 попыток по 10 секунд.
@@ -27,7 +28,6 @@ func RunMigrations(ctx context.Context, pool *pgxpool.Pool, serviceName, migrati
 	}
 
 	// goose.NewProvider в v3.30 принимает *sql.DB, а не *pgxpool.Pool.
-	// Открываем отдельное соединение через database/sql с драйвером pgx.
 	sqlDB, err := sql.Open("pgx", pool.Config().ConnString())
 	if err != nil {
 		return fmt.Errorf("open sql db for migrations: %w", err)
@@ -37,7 +37,7 @@ func RunMigrations(ctx context.Context, pool *pgxpool.Pool, serviceName, migrati
 	provider, err := goose.NewProvider(
 		goose.DialectPostgres,
 		sqlDB,
-		os.DirFS(migrationsDir),
+		migrations,
 		goose.WithTableName(serviceName+"_goose_db_version"),
 		goose.WithSessionLocker(sessionLocker),
 	)

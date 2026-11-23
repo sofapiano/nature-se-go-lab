@@ -24,6 +24,7 @@ import (
 	checkoutrepo "github.com/igoroutine-courses/microservices.ecommerce.cart/internal/repository/checkout"
 	cartusecase "github.com/igoroutine-courses/microservices.ecommerce.cart/internal/usecase/cart"
 	cartpb "github.com/igoroutine-courses/microservices.ecommerce.pkg/generated/cart/api/cart/v1"
+	"github.com/igoroutine-courses/microservices.ecommerce.cart/migrations"
 )
 
 func Run() error {
@@ -47,7 +48,7 @@ func Run() error {
 	}
 	defer pool.Close()
 
-	if err := db.RunMigrations(ctx, pool, "cart", "migrations"); err != nil {
+	if err := db.RunMigrations(ctx, pool, "cart", migrations.FS); err != nil {
 		return fmt.Errorf("run migrations: %w", err)
 	}
 

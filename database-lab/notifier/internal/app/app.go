@@ -20,6 +20,7 @@ import (
 	"github.com/igoroutine-courses/microservices.ecommerce.notifier/internal/repository/binding"
 	notificationusecase "github.com/igoroutine-courses/microservices.ecommerce.notifier/internal/usecase/notification"
 	notifierpb "github.com/igoroutine-courses/microservices.ecommerce.pkg/generated/notifier/api/v1"
+	"github.com/igoroutine-courses/microservices.ecommerce.notifier/migrations"
 )
 
 const (
@@ -40,7 +41,7 @@ func Run(ctx context.Context, cfg *config.Config) error {
 	}
 	defer pool.Close()
 
-	if err := db.RunMigrations(ctx, pool, "notifier", "migrations"); err != nil {
+	if err := db.RunMigrations(ctx, pool, "notifier", migrations.FS); err != nil {
 		return fmt.Errorf("run migrations: %w", err)
 	}
 
