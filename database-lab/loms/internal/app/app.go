@@ -77,13 +77,15 @@ func Run(ctx context.Context, cfg config.Config) error {
 	defer func() { _ = notifierConn.Close() }()
 	notifierClient := notifieradapter.New(notifierConn)
 
-	orderRepository := orderrepo.New()
+	// используем Postgres и передаём transactor
+	orderRepository := orderrepo.NewPostgres(pool)
 	orderService := orderusecase.New(
 		orderRepository,
 		productRepository,
 		stocksRepository,
 		billingClient,
 		notifierClient,
+		transactor, // <-- ДОБАВЛЕНО
 	)
 	orderController := ordercontroller.New(orderService)
 

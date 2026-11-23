@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"sync"
 	"time"
 
 	"github.com/igoroutine-courses/microservices.ecommerce.loms/internal/entity"
+	"github.com/igoroutine-courses/microservices.ecommerce.loms/internal/db"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -26,11 +26,7 @@ type Service struct {
 	stocks   stocksRepository
 	billing  billingClient
 	notifier notificationClient
-
-	// stateMx сериализует создание заказов и переходы состояний (cancel/pay):
-	// идемпотентность (GetRequest+Save), резерв остатков и проверка статуса
-	// перед Cancel/Pay должны быть под одним замком. В MVP с in-memory это ок.
-	stateMx sync.Mutex
+	transactor db.Transactor
 }
 
 func New(
@@ -39,6 +35,7 @@ func New(
 	stocks stocksRepository,
 	billing billingClient,
 	notifier notificationClient,
+	transactor db.Transactor,
 ) *Service {
 	return &Service{
 		orders:   orders,
@@ -46,6 +43,7 @@ func New(
 		stocks:   stocks,
 		billing:  billing,
 		notifier: notifier,
+		transactor: transactor,
 	}
 }
 
@@ -58,46 +56,58 @@ func (s *Service) CreateOrder(ctx context.Context, userID, requestID string, in 
 		return "", err
 	}
 
-	s.stateMx.Lock()
-	defer s.stateMx.Unlock()
-
-	if stored, ok := s.orders.GetRequest(ctx, requestID); ok {
-		if !stored.Matches(userID, items) {
-			return "", fmt.Errorf("%w: request_id reused with different payload", entity.ErrConflict)
+	var orderID string
+	err = s.transactor.WithTx(ctx, func(txCtx context.Context) error {
+		// 1. Идемпотентность
+		if stored, ok := s.orders.GetRequest(txCtx, requestID); ok {
+			if !stored.Matches(userID, items) {
+				return fmt.Errorf("%w: request_id reused with different payload", entity.ErrConflict)
+			}
+			orderID = stored.OrderID
+			return nil
 		}
-		return stored.OrderID, nil
-	}
 
-	total, err := s.resolveProducts(ctx, items)
+		// 2. Проверка товаров и расчёт суммы
+		total, err := s.resolveProducts(txCtx, items)
+		if err != nil {
+			return err
+		}
+		if total > entity.MaxOrderAmount {
+			return fmt.Errorf("%w: order total exceeds limit", entity.ErrState)
+		}
+
+		// 3. Резерв остатков (В ТОЙ ЖЕ ТРАНЗАКЦИИ!)
+		if err := s.stocks.Reserve(txCtx, items); err != nil {
+			return err
+		}
+
+		// 4. Сохранение заказа и истории
+		newOrderID := entity.NewUUIDv7()
+		now := timeNow()
+		order := entity.Order{
+			OrderID:          newOrderID,
+			UserID:           userID,
+			Status:           entity.StatusAwaitingPayment,
+			Items:            items,
+			TotalAmountMinor: uint32(total),
+			Currency:         entity.CurrencyRUB,
+			History: []entity.Transition{
+				{Status: entity.StatusAwaitingPayment, OccurredAt: now},
+			},
+			CreatedAt: now,
+			UpdatedAt: now,
+		}
+		s.orders.Save(txCtx, order, requestID, items)
+		orderID = newOrderID
+		return nil
+	})
+
 	if err != nil {
 		return "", err
 	}
-	if total > entity.MaxOrderAmount {
-		return "", fmt.Errorf("%w: order total exceeds limit", entity.ErrState)
-	}
 
-	if err := s.stocks.Reserve(ctx, items); err != nil {
-		return "", err
-	}
-
-	orderID := entity.NewUUIDv7()
-	now := timeNow()
-	order := entity.Order{
-		OrderID:          orderID,
-		UserID:           userID,
-		Status:           entity.StatusAwaitingPayment,
-		Items:            items,
-		TotalAmountMinor: uint32(total),
-		Currency:         entity.CurrencyRUB,
-		History: []entity.Transition{
-			{Status: entity.StatusAwaitingPayment, OccurredAt: now},
-		},
-		CreatedAt: now,
-		UpdatedAt: now,
-	}
-	s.orders.Save(ctx, order, requestID, items)
-
-	s.notifyOrderStatus(ctx, userID, orderID, "awaiting_payment")
+	// Уведомление ВНЕ транзакции (в Этапе 7 перенесём в outbox)
+	go s.notifyOrderStatus(context.Background(), userID, orderID, "awaiting_payment")
 
 	return orderID, nil
 }
@@ -131,30 +141,80 @@ func (s *Service) ListOrders(ctx context.Context, userID, afterOrderID string, l
 	return page, nil
 }
 
-// PayOrder переводит заказ через состояния оплаты. stateMx сериализует все
-// переходы: конкурентные PayOrder/CancelOrder гарантированно видят свежее
-// состояние и не создают дублирующих платежей.
+// PayOrder переводит заказ через состояния оплаты
 func (s *Service) PayOrder(ctx context.Context, orderID string) error {
 	orderID = entity.CanonicalID(orderID)
 
-	s.stateMx.Lock()
-	defer s.stateMx.Unlock()
+	// Фаза 1: Короткая транзакция для фиксации намерения
+	var externalID string
+	var o entity.Order
+	err := s.transactor.WithTx(ctx, func(txCtx context.Context) error {
+		var err error
+		o, err = s.orders.Get(txCtx, orderID)
+		if err != nil {
+			return err
+		}
 
-	o, err := s.orders.Get(ctx, orderID)
+		switch o.Status {
+		case entity.StatusPaid:
+			return nil // Идемпотентность
+		case entity.StatusPaymentPending:
+			if len(o.Payments) == 0 {
+				return status.Error(codes.Internal, "payment_pending without a payment record")
+			}
+			externalID = o.Payments[len(o.Payments)-1].ExternalID
+			return nil
+		case entity.StatusAwaitingPayment:
+			externalID = entity.NewUUIDv7()
+			now := timeNow()
+			o.Payments = append(o.Payments, entity.PaymentSummary{
+				ExternalID:  externalID,
+				AmountMinor: uint64(o.TotalAmountMinor),
+				Currency:    o.Currency,
+				Status:      entity.PaymentStatusPending,
+			})
+			o.Status = entity.StatusPaymentPending
+			o.History = append(o.History, entity.Transition{
+				Status:     entity.StatusPaymentPending,
+				OccurredAt: now,
+			})
+			o.UpdatedAt = now
+			s.orders.Update(txCtx, o)
+			return nil
+		default:
+			return fmt.Errorf("%w: cannot pay order in status %s", entity.ErrState, o.Status)
+		}
+	})
 	if err != nil {
 		return err
 	}
 
-	switch o.Status {
-	case entity.StatusPaid:
-		return nil // повторная оплата уже оплаченного — идемпотентный no-op
-	case entity.StatusPaymentPending:
-		return s.resolvePayment(ctx, o)
-	case entity.StatusAwaitingPayment:
-		return s.startPayment(ctx, o)
-	default:
-		return fmt.Errorf("%w: cannot pay order in status %s", entity.ErrState, o.Status)
+	if o.Status == entity.StatusPaid {
+		return nil
 	}
+
+	// Фаза 2: Сетевой вызов ВНЕ транзакции (Золотое правило!)
+	resp, err := s.billing.GetPayment(ctx, externalID)
+	if err != nil {
+		if status.Code(err) == codes.NotFound {
+			// Платежа нет в биллинге, создаём его (идемпотентно по external_id)
+			resp, err = s.billing.CreatePayment(ctx, externalID, o.UserID, uint64(o.TotalAmountMinor), o.Currency)
+			if err != nil {
+				return err // Заказ остаётся в payment_pending, следующий вызов попробует снова
+			}
+		} else {
+			return err
+		}
+	}
+
+	// Фаза 3: Новая транзакция для сохранения результата
+	return s.transactor.WithTx(ctx, func(txCtx context.Context) error {
+		currentOrder, err := s.orders.Get(txCtx, orderID)
+		if err != nil {
+			return err
+		}
+		return s.applyPaymentResult(txCtx, currentOrder, resp)
+	})
 }
 
 // startPayment создаёт новый платёж (новый external_id) и пробует провести его.
@@ -211,10 +271,19 @@ func (s *Service) resolvePayment(ctx context.Context, o entity.Order) error {
 }
 
 // applyPaymentResult фиксирует финальный статус платежа и переводит заказ.
-// stateMx уже удерживается вызывающим — здесь только мутация и сохранение.
 func (s *Service) applyPaymentResult(ctx context.Context, o entity.Order, resp entity.PaymentSummary) error {
-	idx := len(o.Payments) - 1
-	o.Payments[idx] = resp
+	var found bool
+	for i := range o.Payments {
+		if o.Payments[i].ExternalID == resp.ExternalID {
+			o.Payments[i] = resp
+			found = true
+			break
+		}
+	}
+	if !found {
+		o.Payments = append(o.Payments, resp)
+	}
+
 	now := timeNow()
 
 	switch resp.Status {
@@ -223,7 +292,7 @@ func (s *Service) applyPaymentResult(ctx context.Context, o entity.Order, resp e
 		o.History = append(o.History, entity.Transition{Status: entity.StatusPaid, OccurredAt: now})
 		o.UpdatedAt = now
 		s.orders.Update(ctx, o)
-		s.notifyOrderStatus(ctx, o.UserID, o.OrderID, "paid")
+		go s.notifyOrderStatus(context.Background(), o.UserID, o.OrderID, "paid")
 		return nil
 
 	case entity.PaymentStatusDeclined:
@@ -233,10 +302,9 @@ func (s *Service) applyPaymentResult(ctx context.Context, o entity.Order, resp e
 			o.UpdatedAt = now
 			s.orders.Update(ctx, o)
 			if err := s.stocks.Release(ctx, o.Items); err != nil {
-				slog.ErrorContext(ctx, "release stock on failure",
-					slog.String("order_id", o.OrderID), slog.Any("error", err))
+				slog.ErrorContext(ctx, "release stock on failure", slog.String("order_id", o.OrderID), slog.Any("error", err))
 			}
-			s.notifyOrderStatus(ctx, o.UserID, o.OrderID, "failed")
+			go s.notifyOrderStatus(context.Background(), o.UserID, o.OrderID, "failed")
 		} else {
 			o.Status = entity.StatusAwaitingPayment
 			o.History = append(o.History, entity.Transition{Status: entity.StatusAwaitingPayment, OccurredAt: now})
@@ -260,36 +328,35 @@ func countDeclined(payments []entity.PaymentSummary) int {
 	return n
 }
 
-// CancelOrder — срез 8. То же самое.
+// CancelOrder, то же самое.
 func (s *Service) CancelOrder(ctx context.Context, orderID string) error {
 	orderID = entity.CanonicalID(orderID)
 
-	s.stateMx.Lock()
-	defer s.stateMx.Unlock()
+	return s.transactor.WithTx(ctx, func(txCtx context.Context) error {
+		o, err := s.orders.Get(txCtx, orderID)
+		if err != nil {
+			return err
+		}
+		if o.Status != entity.StatusAwaitingPayment {
+			return fmt.Errorf("%w: cannot cancel order in status %s", entity.ErrState, o.Status)
+		}
 
-	o, err := s.orders.Get(ctx, orderID)
-	if err != nil {
-		return err
-	}
-	if o.Status != entity.StatusAwaitingPayment {
-		return fmt.Errorf("%w: cannot cancel order in status %s", entity.ErrState, o.Status)
-	}
+		if err := s.stocks.Release(txCtx, o.Items); err != nil {
+			return err
+		}
 
-	if err := s.stocks.Release(ctx, o.Items); err != nil {
-		return err
-	}
+		now := timeNow()
+		o.Status = entity.StatusCancelled
+		o.History = append(o.History, entity.Transition{
+			Status:     entity.StatusCancelled,
+			OccurredAt: now,
+		})
+		o.UpdatedAt = now
+		s.orders.Update(txCtx, o)
 
-	now := timeNow()
-	o.Status = entity.StatusCancelled
-	o.History = append(o.History, entity.Transition{
-		Status:     entity.StatusCancelled,
-		OccurredAt: now,
+		go s.notifyOrderStatus(context.Background(), o.UserID, orderID, "cancelled")
+		return nil
 	})
-	o.UpdatedAt = now
-	s.orders.Update(ctx, o)
-
-	s.notifyOrderStatus(ctx, o.UserID, orderID, "cancelled")
-	return nil
 }
 
 // resolveProducts подставляет name/price из каталога и возвращает сумму в копейках.
