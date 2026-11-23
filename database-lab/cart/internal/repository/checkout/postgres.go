@@ -14,11 +14,10 @@ type postgresRepository struct {
 }
 
 func NewPostgres(executor db.Executor) *postgresRepository {
-	return &postgresRepository{pool: pool}
+	return &postgresRepository{executor: executor}
 }
 
 // Get возвращает order_id и true, если checkout уже создан.
-// Возвращает пустую строку и false, если checkout не найден.
 func (r *postgresRepository) Get(ctx context.Context, requestID string) (string, bool) {
 	exec := db.GetExecutor(ctx, r.executor)
 
@@ -32,7 +31,6 @@ func (r *postgresRepository) Get(ctx context.Context, requestID string) (string,
 		if errors.Is(err, pgx.ErrNoRows) {
 			return "", false
 		}
-		// В продакшене здесь должен быть лог
 		return "", false
 	}
 
@@ -40,7 +38,6 @@ func (r *postgresRepository) Get(ctx context.Context, requestID string) (string,
 }
 
 // Save сохраняет checkout с order_id.
-// Использует UPSERT для идемпотентности: если запись уже есть, обновляем order_id.
 func (r *postgresRepository) Save(ctx context.Context, requestID, orderID string) error {
 	exec := db.GetExecutor(ctx, r.executor)
 

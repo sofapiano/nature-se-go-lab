@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/jackc/pgx/v5/pgxpool"
-
 	"github.com/igoroutine-courses/microservices.ecommerce.cart/internal/db"
 	"github.com/igoroutine-courses/microservices.ecommerce.cart/internal/entity"
 )
@@ -15,9 +13,9 @@ type postgresRepository struct {
 	transactor db.Transactor
 }
 
-func NewPostgres(pool *pgxpool.Pool, transactor db.Transactor) *postgresRepository {
+func NewPostgres(executor db.Executor, transactor db.Transactor) *postgresRepository {
 	return &postgresRepository{
-		pool:       pool,
+		executor:   executor,
 		transactor: transactor,
 	}
 }
@@ -58,12 +56,10 @@ func (r *postgresRepository) Get(ctx context.Context, userID string) (entity.Car
 }
 
 // Add добавляет товар в корзину или увеличивает количество.
-// Использует транзакцию для конкурентной безопасности.
 func (r *postgresRepository) Add(ctx context.Context, userID, sku string, count uint32, _ uint64) error {
 	return r.transactor.WithTx(ctx, func(txCtx context.Context) error {
 		exec := db.GetExecutor(txCtx, r.executor)
 
-		// Материализуем корзину, если её нет
 		_, err := exec.Exec(txCtx, `
 			INSERT INTO cart.carts (user_id)
 			VALUES ($1)
@@ -73,7 +69,6 @@ func (r *postgresRepository) Add(ctx context.Context, userID, sku string, count 
 			return fmt.Errorf("materialize cart: %w", err)
 		}
 
-		// Пытаемся увеличить количество существующей позиции
 		tag, err := exec.Exec(txCtx, `
 			UPDATE cart.cart_items
 			SET count = count + $3, updated_at = CURRENT_TIMESTAMP
@@ -83,7 +78,6 @@ func (r *postgresRepository) Add(ctx context.Context, userID, sku string, count 
 			return fmt.Errorf("update cart item: %w", err)
 		}
 
-		// Если позиция не найдена, создаём новую
 		if tag.RowsAffected() == 0 {
 			_, err = exec.Exec(txCtx, `
 				INSERT INTO cart.cart_items (user_id, sku, count)
@@ -103,7 +97,6 @@ func (r *postgresRepository) Set(ctx context.Context, userID, sku string, count 
 	return r.transactor.WithTx(ctx, func(txCtx context.Context) error {
 		exec := db.GetExecutor(txCtx, r.executor)
 
-		// Материализуем корзину, если её нет
 		_, err := exec.Exec(txCtx, `
 			INSERT INTO cart.carts (user_id)
 			VALUES ($1)
@@ -113,7 +106,6 @@ func (r *postgresRepository) Set(ctx context.Context, userID, sku string, count 
 			return fmt.Errorf("materialize cart: %w", err)
 		}
 
-		// Обновляем или вставляем позицию
 		_, err = exec.Exec(txCtx, `
 			INSERT INTO cart.cart_items (user_id, sku, count)
 			VALUES ($1, $2, $3)

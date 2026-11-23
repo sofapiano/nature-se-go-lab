@@ -14,7 +14,7 @@ func TestPostgresRepository_Get_Found(t *testing.T) {
 	require.NoError(t, err)
 	defer mock.Close()
 
-	repo := NewPostgres(mock, nil)
+	repo := NewPostgres(mock)
 
 	rows := pgxmock.NewRows([]string{"order_id"}).AddRow("order-123")
 	mock.ExpectQuery("SELECT order_id").

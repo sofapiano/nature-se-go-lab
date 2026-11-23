@@ -8,7 +8,6 @@ import (
 )
 
 // ctxKey — неэкспортируемый тип для ключа контекста.
-// Это best practice: никто извне не сможет случайно перезаписать нашу транзакцию.
 type ctxKey struct{}
 
 // ContextWithTx добавляет транзакцию в контекст.
@@ -17,16 +16,13 @@ func ContextWithTx(ctx context.Context, tx pgx.Tx) context.Context {
 }
 
 // TxFromContext извлекает транзакцию из контекста.
-// Возвращает транзакцию и true, если она есть; иначе nil и false.
 func TxFromContext(ctx context.Context) (pgx.Tx, bool) {
 	tx, ok := ctx.Value(ctxKey{}).(pgx.Tx)
 	return tx, ok
 }
 
 // Executor — интерфейс для выполнения SQL-запросов.
-// Его реализуют и pgxpool.Pool (для работы вне транзакции),
-// и pgx.Tx (для работы внутри транзакции).
-// Это позволит репозиториям работать в обоих режимах без изменений.
+// Его реализуют и *pgxpool.Pool, и pgx.Tx, и pgxmock.PgxPoolIface.
 type Executor interface {
 	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
 	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
@@ -35,9 +31,9 @@ type Executor interface {
 
 // GetExecutor возвращает Executor из контекста (если есть транзакция)
 // или переданный executor (если транзакции нет).
-func GetExecutor(ctx context.Context, pool Executor) Executor {
+func GetExecutor(ctx context.Context, exec Executor) Executor {
 	if tx, ok := TxFromContext(ctx); ok {
 		return tx
 	}
-	return pool
+	return exec
 }
