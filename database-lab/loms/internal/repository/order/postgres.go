@@ -44,7 +44,7 @@ func (r *postgresRepository) Get(ctx context.Context, orderID string) (entity.Or
 	defer rows.Close()
 	for rows.Next() {
 		var item entity.Item
-		if err := rows.Scan(&item.SKU, &item.Count, &item.Name, &item.Price); err != nil {
+		if scanErr := rows.Scan(&item.SKU, &item.Count, &item.Name, &item.Price); scanErr != nil {
 			return entity.Order{}, fmt.Errorf("scan order item: %w", err)
 		}
 		o.Items = append(o.Items, item)
@@ -63,8 +63,8 @@ func (r *postgresRepository) Get(ctx context.Context, orderID string) (entity.Or
 		var p entity.PaymentSummary
 		var riskScore *float64
 		var modelVersion, declineReason *string
-		err := pRows.Scan(&p.PaymentID, &p.ExternalID, &p.AmountMinor, &p.Currency, &p.Status, &riskScore, &modelVersion, &declineReason)
-		if err != nil {
+		scanErr := pRows.Scan(&p.PaymentID, &p.ExternalID, &p.AmountMinor, &p.Currency, &p.Status, &riskScore, &modelVersion, &declineReason)
+		if scanErr != nil {
 			return entity.Order{}, fmt.Errorf("scan payment: %w", err)
 		}
 		if riskScore != nil {

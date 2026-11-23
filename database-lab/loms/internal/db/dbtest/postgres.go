@@ -29,7 +29,7 @@ func NewPool(t *testing.T, serviceName, migrationsDir string) *pgxpool.Pool {
 		testcontainers.WithWaitStrategy(
 			wait.ForLog("database system is ready to accept connections").
 				WithOccurrence(2).
-				WithStartupTimeout(60*time.Second),
+				WithStartupTimeout(60*time.Second), //nolint:mnd // just because
 		),
 	)
 	require.NoError(t, err)

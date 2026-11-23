@@ -35,7 +35,7 @@ const shutdownTimeout = 10 * time.Second
 
 func Run(ctx context.Context, cfg config.Config) error {
 	pool, err := db.NewPool(ctx, db.Config{
-		DSN:             fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=disable", cfg.PG.User, cfg.PG.Password, cfg.PG.Host, cfg.PG.Port, cfg.PG.DB),
+		DSN:             fmt.Sprintf("postgres://%s:%s@%s/%s?sslmode=disable", cfg.PG.User, cfg.PG.Password, net.JoinHostPort(cfg.PG.Host, cfg.PG.Port), cfg.PG.DB),
 		MaxConns:        10,
 		MinConns:        2,
 		MaxConnLifetime: 30 * time.Minute, //nolint:mnd // эти числа являются стандартными константами алгоритмов или конфигурации.
@@ -45,7 +45,7 @@ func Run(ctx context.Context, cfg config.Config) error {
 	}
 	defer pool.Close()
 
-	if err := db.RunMigrations(ctx, pool, "loms", migrations.FS); err != nil {
+	if err = db.RunMigrations(ctx, pool, "loms", migrations.FS); err != nil {
 		return fmt.Errorf("run migrations: %w", err)
 	}
 

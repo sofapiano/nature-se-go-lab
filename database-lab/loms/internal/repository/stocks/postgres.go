@@ -84,7 +84,7 @@ func (r *postgresRepository) Receive(ctx context.Context, receipt entity.StockRe
 			var existingSKU string
 			var existingCount uint64
 
-			err := exec.QueryRow(txCtx, `
+			err = exec.QueryRow(txCtx, `
 				SELECT sku, count
 				FROM loms.stock_receipts
 				WHERE operation_id = $1

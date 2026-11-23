@@ -57,7 +57,9 @@ func (w *InboxWorker) processBatch(ctx context.Context) {
 		// вызов Telegram ВНЕ транзакции БД.
 		err := w.delivery.SendOrderStatusChanged(ctx, ev.OrderID, ev.UserID, ev.Status)
 		if err != nil {
-			backoff := min(60, 5*ev.Attempts)
+			const maxBackoffSec = 60
+			const backoffBaseSec = 5
+			backoff := min(maxBackoffSec, backoffBaseSec*ev.Attempts)
 			slog.Warn("telegram delivery failed, schedule retry",
 				"event_id", ev.EventID, "attempts", ev.Attempts, "error", err)
 			_ = w.repo.MarkRetry(ctx, ev.EventID, ev.LeaseUntil, backoff, err.Error())

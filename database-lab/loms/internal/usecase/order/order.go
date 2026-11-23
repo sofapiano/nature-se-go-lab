@@ -71,7 +71,8 @@ func (s *Service) CreateOrder(ctx context.Context, userID, requestID string, in 
 		}
 
 		// 2. Проверка товаров и расчёт суммы
-		total, err := s.resolveProducts(txCtx, items)
+		var total uint64
+		total, err = s.resolveProducts(txCtx, items)
 		if err != nil {
 			return err
 		}
@@ -80,7 +81,7 @@ func (s *Service) CreateOrder(ctx context.Context, userID, requestID string, in 
 		}
 
 		// 3. Резерв остатков (В ТОЙ ЖЕ ТРАНЗАКЦИИ!)
-		if err := s.stocks.Reserve(txCtx, items); err != nil {
+		if err = s.stocks.Reserve(txCtx, items); err != nil {
 			return err
 		}
 
@@ -104,13 +105,13 @@ func (s *Service) CreateOrder(ctx context.Context, userID, requestID string, in 
 
 		outboxEvent := entity.OutboxEvent{
 			EventID:   entity.NewUUIDv7(),
-			EventType: "order_status_changed",
+			EventType: "order_status_changed", //nolint:goconst // event type literal is clear in this context
 			OrderID:   newOrderID,
 			UserID:    userID,
 			Status:    "awaiting_payment",
 			Payload:   fmt.Sprintf(`{"order_id": "%s", "status": "awaiting_payment"}`, newOrderID),
 		}
-		if err := s.outbox.Save(txCtx, outboxEvent); err != nil {
+		if err = s.outbox.Save(txCtx, outboxEvent); err != nil {
 			return fmt.Errorf("save outbox event: %w", err)
 		}
 
@@ -228,59 +229,6 @@ func (s *Service) PayOrder(ctx context.Context, orderID string) error {
 		}
 		return s.applyPaymentResult(txCtx, currentOrder, resp)
 	})
-}
-
-// startPayment создаёт новый платёж (новый external_id) и пробует провести его.
-// Перед вызовом биллинга фиксируем payment_pending: если ответ потеряется,
-// следующий вызов найдёт external_id и сможет проверить результат через GetPayment.
-func (s *Service) startPayment(ctx context.Context, o entity.Order) error {
-	externalID := entity.NewUUIDv7()
-	now := timeNow()
-
-	o.Payments = append(o.Payments, entity.PaymentSummary{
-		ExternalID:  externalID,
-		AmountMinor: uint64(o.TotalAmountMinor),
-		Currency:    o.Currency,
-		Status:      entity.PaymentStatusPending,
-	})
-	o.Status = entity.StatusPaymentPending
-	o.History = append(o.History, entity.Transition{
-		Status:     entity.StatusPaymentPending,
-		OccurredAt: now,
-	})
-	o.UpdatedAt = now
-	s.orders.Update(ctx, o)
-
-	resp, err := s.billing.CreatePayment(ctx, externalID, o.UserID, uint64(o.TotalAmountMinor), o.Currency)
-	if err != nil {
-		// Биллинг не дал однозначного результата (timeout, unavailable, cancel).
-		// Заказ остаётся в payment_pending, резерв сохраняется, external_id запомнен.
-		return err
-	}
-	return s.applyPaymentResult(ctx, o, resp)
-}
-
-// resolvePayment — вторая фаза: состояние payment_pending означает, что биллинг
-// мог уже провести платёж. Сначала уточняем через GetPayment; NotFound значит,
-// что вызов не дошёл до сохранения (например, UNAVAILABLE), и его можно повторить
-// с тем же external_id — биллинг идемпотентен по external_id.
-func (s *Service) resolvePayment(ctx context.Context, o entity.Order) error {
-	if len(o.Payments) == 0 {
-		return status.Error(codes.Internal, "payment_pending without a payment record")
-	}
-	externalID := o.Payments[len(o.Payments)-1].ExternalID
-
-	resp, err := s.billing.GetPayment(ctx, externalID)
-	if err != nil {
-		if status.Code(err) != codes.NotFound {
-			return err
-		}
-		resp, err = s.billing.CreatePayment(ctx, externalID, o.UserID, uint64(o.TotalAmountMinor), o.Currency)
-		if err != nil {
-			return err
-		}
-	}
-	return s.applyPaymentResult(ctx, o, resp)
 }
 
 // applyPaymentResult фиксирует финальный статус платежа и переводит заказ.
@@ -443,16 +391,6 @@ func canonicalize(in []entity.Item) ([]entity.Item, error) {
 		out[i] = entity.Item{SKU: sku, Count: it.Count}
 	}
 	return out, nil
-}
-
-// notifyOrderStatus — хук среза 4. В срезе 5 notifier — no-op; в срезе 4
-// заменим адаптер на реальный, а здесь уже готово. Ошибка логируется, заказ
-// не откатывается — это требование «Что должно работать».
-func (s *Service) notifyOrderStatus(ctx context.Context, userID, orderID, status string) {
-	if err := s.notifier.SendOrderStatusChanged(ctx, userID, orderID, status); err != nil {
-		slog.WarnContext(ctx, "notify failed",
-			slog.String("order_id", orderID), slog.Any("error", err))
-	}
 }
 
 // timeNow вынесено, чтобы в будущем подменить в тестах, если понадобится.
