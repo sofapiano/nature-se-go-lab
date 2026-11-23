@@ -5,6 +5,7 @@ import (
 	"context"
 	"testing"
 	"time"
+	"os"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"

@@ -18,9 +18,11 @@ import (
 	notificationcontroller "github.com/igoroutine-courses/microservices.ecommerce.notifier/internal/controller/notification"
 	"github.com/igoroutine-courses/microservices.ecommerce.notifier/internal/db"
 	"github.com/igoroutine-courses/microservices.ecommerce.notifier/internal/repository/binding"
+	inboxrepo "github.com/igoroutine-courses/microservices.ecommerce.notifier/internal/repository/inbox"
 	notificationusecase "github.com/igoroutine-courses/microservices.ecommerce.notifier/internal/usecase/notification"
-	notifierpb "github.com/igoroutine-courses/microservices.ecommerce.pkg/generated/notifier/api/v1"
+	"github.com/igoroutine-courses/microservices.ecommerce.notifier/internal/worker"
 	"github.com/igoroutine-courses/microservices.ecommerce.notifier/migrations"
+	notifierpb "github.com/igoroutine-courses/microservices.ecommerce.pkg/generated/notifier/api/v1"
 )
 
 const (
@@ -56,8 +58,10 @@ func Run(ctx context.Context, cfg *config.Config) error {
 	telegramClient := telegram.New(cfg.Telegram.BaseURL, cfg.Telegram.Token, &http.Client{
 		Timeout: telegramTimeout,
 	})
+
 	repo := binding.NewPostgres(pool)
-	svc := notificationusecase.New(telegramClient, repo)
+	inboxRepo := inboxrepo.NewPostgres(pool)
+	svc := notificationusecase.New(telegramClient, repo, inboxRepo)
 	ctrl := notificationcontroller.New(svc)
 
 	server := grpc.NewServer(grpc.ChainUnaryInterceptor(validation))
@@ -71,6 +75,10 @@ func Run(ctx context.Context, cfg *config.Config) error {
 	if err != nil {
 		return fmt.Errorf("listen on port %s: %w", cfg.GRPC.Port, err)
 	}
+
+	// Фоновый воркер доставки: забирает задачи из inbox и шлёт в Telegram.
+	inboxWorker := worker.NewInboxWorker(inboxRepo, svc, 2*time.Second, 10)
+	go inboxWorker.Start(ctx)
 
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- server.Serve(listener) }()

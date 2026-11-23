@@ -33,7 +33,7 @@ func (c *Controller) SendOrderStatusChangedNotification(
 	ctx context.Context,
 	req *notifierpb.OrderStatusChangedNotificationRequest,
 ) (*emptypb.Empty, error) {
-	if err := c.service.SendOrderStatusChanged(ctx, req.GetOrderId(), req.GetUserId(), req.GetStatus()); err != nil {
+	if err := c.service.AcceptOrderStatusChanged(ctx, req.GetEventId(), req.GetOrderId(), req.GetUserId(), req.GetStatus()); err != nil {
 		return nil, toGRPC(err)
 	}
 	return &emptypb.Empty{}, nil

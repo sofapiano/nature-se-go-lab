@@ -6,5 +6,5 @@ import "context"
 
 type notificationService interface {
 	BindTelegram(ctx context.Context, userID, chatID string) error
-	SendOrderStatusChanged(ctx context.Context, orderID, userID, status string) error
+	AcceptOrderStatusChanged(ctx context.Context, eventID, orderID, userID, status string) error
 }

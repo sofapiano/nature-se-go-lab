@@ -67,8 +67,7 @@ func TestBindTelegram_ErrorMapping(t *testing.T) {
 
 func TestSendNotification_Success(t *testing.T) {
 	c, svc := setup(t)
-	svc.EXPECT().SendOrderStatusChanged(gomock.Any(), orderID, userID, "paid").Return(nil)
-
+	svc.EXPECT().AcceptOrderStatusChanged(gomock.Any(), gomock.Any(), orderID, userID, "paid").Return(nil)
 	_, err := c.SendOrderStatusChangedNotification(context.Background(),
 		&notifierpb.OrderStatusChangedNotificationRequest{
 			OrderId: orderID, UserId: userID, Status: "paid",
@@ -78,8 +77,8 @@ func TestSendNotification_Success(t *testing.T) {
 
 func TestSendNotification_UnavailableMapsToUnavailable(t *testing.T) {
 	c, svc := setup(t)
-	svc.EXPECT().SendOrderStatusChanged(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
-		Return(entity.ErrUnavailable)
+	svc.EXPECT().AcceptOrderStatusChanged(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+    Return(entity.ErrUnavailable)
 
 	_, err := c.SendOrderStatusChangedNotification(context.Background(),
 		&notifierpb.OrderStatusChangedNotificationRequest{

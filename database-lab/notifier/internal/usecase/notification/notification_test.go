@@ -31,7 +31,7 @@ func setup(t *testing.T) deps {
 		sender:   mocks.NewMocksender(ctrl),
 		bindings: mocks.NewMockbindings(ctrl),
 	}
-	d.svc = New(d.sender, d.bindings)
+	d.svc = New(d.sender, d.bindings, mocks.NewMockinboxRepository(ctrl))
 	return d
 }
 
