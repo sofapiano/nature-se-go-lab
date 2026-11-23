@@ -11,7 +11,7 @@ import (
 )
 
 type postgresRepository struct {
-	pool       *pgxpool.Pool
+	executor   db.Executor
 	transactor db.Transactor
 }
 
@@ -24,7 +24,7 @@ func NewPostgres(pool *pgxpool.Pool, transactor db.Transactor) *postgresReposito
 
 // Get возвращает корзину пользователя со всеми позициями.
 func (r *postgresRepository) Get(ctx context.Context, userID string) (entity.Cart, error) {
-	exec := db.GetExecutor(ctx, r.pool)
+	exec := db.GetExecutor(ctx, r.executor)
 
 	rows, err := exec.Query(ctx, `
 		SELECT sku, count
@@ -61,7 +61,7 @@ func (r *postgresRepository) Get(ctx context.Context, userID string) (entity.Car
 // Использует транзакцию для конкурентной безопасности.
 func (r *postgresRepository) Add(ctx context.Context, userID, sku string, count uint32, _ uint64) error {
 	return r.transactor.WithTx(ctx, func(txCtx context.Context) error {
-		exec := db.GetExecutor(txCtx, r.pool)
+		exec := db.GetExecutor(txCtx, r.executor)
 
 		// Материализуем корзину, если её нет
 		_, err := exec.Exec(txCtx, `
@@ -101,7 +101,7 @@ func (r *postgresRepository) Add(ctx context.Context, userID, sku string, count 
 // Set устанавливает точное количество товара в корзине.
 func (r *postgresRepository) Set(ctx context.Context, userID, sku string, count uint32, _ uint64) error {
 	return r.transactor.WithTx(ctx, func(txCtx context.Context) error {
-		exec := db.GetExecutor(txCtx, r.pool)
+		exec := db.GetExecutor(txCtx, r.executor)
 
 		// Материализуем корзину, если её нет
 		_, err := exec.Exec(txCtx, `
@@ -130,7 +130,7 @@ func (r *postgresRepository) Set(ctx context.Context, userID, sku string, count 
 
 // Delete удаляет позицию из корзины.
 func (r *postgresRepository) Delete(ctx context.Context, userID, sku string) error {
-	exec := db.GetExecutor(ctx, r.pool)
+	exec := db.GetExecutor(ctx, r.executor)
 
 	tag, err := exec.Exec(ctx, `
 		DELETE FROM cart.cart_items
@@ -149,7 +149,7 @@ func (r *postgresRepository) Delete(ctx context.Context, userID, sku string) err
 
 // Clear удаляет все позиции из корзины.
 func (r *postgresRepository) Clear(ctx context.Context, userID string) error {
-	exec := db.GetExecutor(ctx, r.pool)
+	exec := db.GetExecutor(ctx, r.executor)
 
 	_, err := exec.Exec(ctx, `
 		DELETE FROM cart.cart_items

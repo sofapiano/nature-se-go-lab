@@ -5,7 +5,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // ctxKey — неэкспортируемый тип для ключа контекста.
@@ -35,9 +34,8 @@ type Executor interface {
 }
 
 // GetExecutor возвращает Executor из контекста (если есть транзакция)
-// или пул соединений (если транзакции нет).
-// Это ключевой хелпер для репозиториев: они могут работать и внутри транзакции, и вне её.
-func GetExecutor(ctx context.Context, pool *pgxpool.Pool) Executor {
+// или переданный executor (если транзакции нет).
+func GetExecutor(ctx context.Context, pool Executor) Executor {
 	if tx, ok := TxFromContext(ctx); ok {
 		return tx
 	}
