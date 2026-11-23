@@ -7,3 +7,10 @@ WHERE user_id = $1;
 INSERT INTO notifier.user_bindings (user_id, chat_id)
 VALUES ($1, $2)
 ON CONFLICT (user_id) DO UPDATE SET chat_id = EXCLUDED.chat_id;
+
+-- name: UpsertBinding :one
+INSERT INTO notifier.user_bindings (user_id, chat_id)
+VALUES ($1, $2)
+ON CONFLICT (user_id)
+DO UPDATE SET chat_id = EXCLUDED.chat_id
+RETURNING user_id, chat_id, created_at;

@@ -35,3 +35,17 @@ func (c *Client) SendOrderStatusChanged(ctx context.Context, userID, orderID, st
 	}
 	return nil
 }
+
+// SendEvent передаёт уведомление вместе с ключом дедупликации event_id.
+func (c *Client) SendEvent(ctx context.Context, eventID, userID, orderID, status string) error {
+	_, err := c.client.SendOrderStatusChangedNotification(ctx, &notifierpb.OrderStatusChangedNotificationRequest{
+		EventId: eventID,
+		OrderId: orderID,
+		UserId:  userID,
+		Status:  status,
+	})
+	if err != nil {
+		return fmt.Errorf("send event: %w", err)
+	}
+	return nil
+}

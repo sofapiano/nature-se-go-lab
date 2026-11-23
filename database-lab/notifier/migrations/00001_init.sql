@@ -3,7 +3,7 @@ CREATE SCHEMA IF NOT EXISTS notifier;
 
 CREATE TABLE IF NOT EXISTS notifier.user_bindings (
     user_id VARCHAR(255) PRIMARY KEY,
-    chat_id VARCHAR(255) NOT NULL
+    chat_id BIGINT NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 

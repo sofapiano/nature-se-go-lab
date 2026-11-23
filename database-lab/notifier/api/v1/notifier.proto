@@ -24,4 +24,6 @@ message OrderStatusChangedNotificationRequest {
   string order_id = 1 [json_name = "order_id", (buf.validate.field).string = {min_len: 1}];
   string user_id  = 2 [json_name = "user_id",  (buf.validate.field).string = {min_len: 1}];
   string status   = 3 [json_name = "status",   (buf.validate.field).string = {min_len: 1}];
+  // event_id — ключ дедупликации inbox. Пустой (legacy-вызовы) = новое событие.
+  string event_id = 4 [json_name = "event_id"];
 }

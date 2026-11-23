@@ -8,9 +8,10 @@ import (
 	"github.com/igoroutine-courses/microservices.ecommerce.loms/internal/entity"
 )
 
-// notifierClient определяет метод, который нам нужен от адаптера Notifier.
+// notifierClient — узкий интерфейс адаптера Notifier: только то, что нужно воркеру.
+// Меняя его, мы не трогаем интерфейсы usecase и их моки.
 type notifierClient interface {
-	SendOrderStatusChanged(ctx context.Context, userID, orderID, status string) error
+	SendEvent(ctx context.Context, eventID, userID, orderID, status string) error
 }
 
 // outboxRepository определяет методы, нужные воркеру.
@@ -61,15 +62,17 @@ func (w *OutboxWorker) processBatch(ctx context.Context) {
 	}
 
 	for _, ev := range events {
-		// Сетевой вызов вне транзакции БД
-		err := w.notifier.SendOrderStatusChanged(ctx, ev.UserID, ev.OrderID, ev.Status)
-		if err != nil {
+		// сетевой вызов ВНЕ транзакции БД.
+		// SendEvent возвращает только error: воркеру важен факт успеха,
+		// а не тело ответа Notifier.
+		if err := w.notifier.SendEvent(ctx, ev.EventID, ev.UserID, ev.OrderID, ev.Status); err != nil {
 			slog.Warn("failed to send notification, will retry",
 				"event_id", ev.EventID, "order_id", ev.OrderID, "error", err)
 			_ = w.repo.MarkFailed(ctx, ev.EventID, err.Error())
-		} else {
-			slog.Info("notification sent successfully", "event_id", ev.EventID, "order_id", ev.OrderID)
-			_ = w.repo.MarkSent(ctx, ev.EventID)
+			continue
 		}
+
+		slog.Info("notification sent successfully", "event_id", ev.EventID, "order_id", ev.OrderID)
+		_ = w.repo.MarkSent(ctx, ev.EventID)
 	}
 }

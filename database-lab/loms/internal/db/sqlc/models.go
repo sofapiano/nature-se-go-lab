@@ -8,6 +8,61 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type LomsOrder struct {
+	OrderID          string             `json:"order_id"`
+	RequestID        pgtype.Text        `json:"request_id"`
+	UserID           string             `json:"user_id"`
+	Status           string             `json:"status"`
+	TotalAmountMinor int64              `json:"total_amount_minor"`
+	Currency         string             `json:"currency"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
+}
+
+type LomsOrderItem struct {
+	OrderID    string `json:"order_id"`
+	Sku        string `json:"sku"`
+	Count      int32  `json:"count"`
+	Name       string `json:"name"`
+	PriceMinor int64  `json:"price_minor"`
+}
+
+type LomsOrderStatusHistory struct {
+	ID         int64              `json:"id"`
+	OrderID    string             `json:"order_id"`
+	Status     string             `json:"status"`
+	OccurredAt pgtype.Timestamptz `json:"occurred_at"`
+}
+
+type LomsOutbox struct {
+	EventID    string             `json:"event_id"`
+	EventType  string             `json:"event_type"`
+	OrderID    string             `json:"order_id"`
+	UserID     string             `json:"user_id"`
+	Status     string             `json:"status"`
+	Payload    []byte             `json:"payload"`
+	StatusSent string             `json:"status_sent"`
+	LeaseUntil pgtype.Timestamptz `json:"lease_until"`
+	Attempts   int32              `json:"attempts"`
+	LastError  pgtype.Text        `json:"last_error"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
+}
+
+type LomsPayment struct {
+	PaymentID              string             `json:"payment_id"`
+	OrderID                string             `json:"order_id"`
+	ExternalID             string             `json:"external_id"`
+	AmountMinor            int64              `json:"amount_minor"`
+	Currency               string             `json:"currency"`
+	Status                 string             `json:"status"`
+	AntifraudRiskScore     pgtype.Float8      `json:"antifraud_risk_score"`
+	AntifraudModelVersion  pgtype.Text        `json:"antifraud_model_version"`
+	AntifraudDeclineReason pgtype.Text        `json:"antifraud_decline_reason"`
+	CreatedAt              pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt              pgtype.Timestamptz `json:"updated_at"`
+}
+
 type LomsProduct struct {
 	Sku    string `json:"sku"`
 	Name   string `json:"name"`
