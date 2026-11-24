@@ -124,16 +124,12 @@ func (r *postgresRepository) Set(ctx context.Context, userID, sku string, count 
 func (r *postgresRepository) Delete(ctx context.Context, userID, sku string) error {
 	exec := db.GetExecutor(ctx, r.executor)
 
-	tag, err := exec.Exec(ctx, `
+	_, err := exec.Exec(ctx, `
 		DELETE FROM cart.cart_items
 		WHERE user_id = $1 AND sku = $2
 	`, userID, sku)
 	if err != nil {
 		return fmt.Errorf("delete cart item: %w", err)
-	}
-
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("cart item %q for user %q: %w", sku, userID, entity.ErrNotFound)
 	}
 
 	return nil

@@ -166,7 +166,7 @@ func (r *postgresRepository) Update(ctx context.Context, order entity.Order) {
 			INSERT INTO loms.payments (payment_id, order_id, external_id, amount_minor, currency, status, antifraud_risk_score, antifraud_model_version, antifraud_decline_reason)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 			ON CONFLICT (external_id) DO UPDATE
-			SET status = EXCLUDED.status, antifraud_risk_score = EXCLUDED.antifraud_risk_score,
+			SET payment_id = EXCLUDED.payment_id, status = EXCLUDED.status, antifraud_risk_score = EXCLUDED.antifraud_risk_score,
 			    antifraud_model_version = EXCLUDED.antifraud_model_version, antifraud_decline_reason = EXCLUDED.antifraud_decline_reason,
 			    updated_at = CURRENT_TIMESTAMP
 		`, p.PaymentID, order.OrderID, p.ExternalID, p.AmountMinor, p.Currency, p.Status, riskScore, modelVersion, declineReason)

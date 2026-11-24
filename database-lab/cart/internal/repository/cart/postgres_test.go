@@ -6,8 +6,6 @@ import (
 
 	"github.com/pashagolub/pgxmock/v6"
 	"github.com/stretchr/testify/require"
-
-	"github.com/igoroutine-courses/microservices.ecommerce.cart/internal/entity"
 )
 
 type mockTransactor struct {
@@ -138,7 +136,7 @@ func TestPostgresRepository_Delete(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
-func TestPostgresRepository_Delete_NotFound(t *testing.T) {
+func TestPostgresRepository_Delete_MissingIsNoop(t *testing.T) {
 	mock, err := pgxmock.NewPool()
 	require.NoError(t, err)
 	defer mock.Close()
@@ -149,8 +147,7 @@ func TestPostgresRepository_Delete_NotFound(t *testing.T) {
 		WithArgs("user-1", "SKU-1").
 		WillReturnResult(pgxmock.NewResult("DELETE", 0))
 
-	err = repo.Delete(context.Background(), "user-1", "SKU-1")
-	require.ErrorIs(t, err, entity.ErrNotFound)
+	require.NoError(t, repo.Delete(context.Background(), "user-1", "SKU-1"))
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 

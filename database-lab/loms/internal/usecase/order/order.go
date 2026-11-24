@@ -185,6 +185,7 @@ func (s *Service) PayOrder(ctx context.Context, orderID string) error {
 			externalID = entity.NewUUIDv7()
 			now := timeNow()
 			o.Payments = append(o.Payments, entity.PaymentSummary{
+				PaymentID:   entity.NewUUIDv7(),
 				ExternalID:  externalID,
 				AmountMinor: uint64(o.TotalAmountMinor),
 				Currency:    o.Currency,
