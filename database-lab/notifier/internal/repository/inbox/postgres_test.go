@@ -42,6 +42,31 @@ func TestPostgresSave_Error(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
+func TestPostgresSave_IdempotentSamePayload(t *testing.T) {
+	ctx, mock := newCtx(t)
+	ev := entity.InboxEvent{EventID: "e-1", OrderID: "o-1", UserID: "u-1", Status: "paid"}
+	mock.ExpectExec("INSERT INTO notifier.inbox").
+		WithArgs(ev.EventID, ev.OrderID, ev.UserID, ev.Status).
+		WillReturnResult(pgxmock.NewResult("INSERT", 0))
+	mock.ExpectQuery("SELECT order_id, user_id, status").WithArgs("e-1").
+		WillReturnRows(pgxmock.NewRows([]string{"order_id", "user_id", "status"}).AddRow("o-1", "u-1", "paid"))
+	require.NoError(t, NewPostgres(nil).Save(ctx, ev))
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestPostgresSave_ConflictChangedPayload(t *testing.T) {
+	ctx, mock := newCtx(t)
+	ev := entity.InboxEvent{EventID: "e-1", OrderID: "o-1", UserID: "u-1", Status: "paid"}
+	mock.ExpectExec("INSERT INTO notifier.inbox").
+		WithArgs(ev.EventID, ev.OrderID, ev.UserID, ev.Status).
+		WillReturnResult(pgxmock.NewResult("INSERT", 0))
+	mock.ExpectQuery("SELECT order_id, user_id, status").WithArgs("e-1").
+		WillReturnRows(pgxmock.NewRows([]string{"order_id", "user_id", "status"}).AddRow("o-1", "u-1", "awaiting_payment"))
+	err := NewPostgres(nil).Save(ctx, ev)
+	require.ErrorIs(t, err, entity.ErrConflict)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
 func TestPostgresClaim(t *testing.T) {
 	ctx, mock := newCtx(t)
 	lease := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)

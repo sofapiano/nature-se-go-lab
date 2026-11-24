@@ -23,13 +23,30 @@ func NewPostgres(pool *pgxpool.Pool) *postgresRepository {
 // (pending/in_progress/processed) не создаёт вторую задачу: DO NOTHING.
 func (r *postgresRepository) Save(ctx context.Context, e entity.InboxEvent) error {
 	exec := db.GetExecutor(ctx, r.pool)
-	_, err := exec.Exec(ctx, `
+	tag, err := exec.Exec(ctx, `
 		INSERT INTO notifier.inbox (event_id, order_id, user_id, status, state)
 		VALUES ($1, $2, $3, $4, 'pending')
 		ON CONFLICT (event_id) DO NOTHING
 	`, e.EventID, e.OrderID, e.UserID, e.Status)
 	if err != nil {
 		return fmt.Errorf("save inbox event: %w", err)
+	}
+	if tag.RowsAffected() > 0 {
+		return nil
+	}
+
+	// event_id уже зарегистрирован: идемпотентный повтор допустим только с тем же
+	// payload; другой payload под тем же ключом — конфликт.
+	var orderID, userID, status string
+	if err := exec.QueryRow(ctx, `
+		SELECT order_id, user_id, status
+		FROM notifier.inbox
+		WHERE event_id = $1
+	`, e.EventID).Scan(&orderID, &userID, &status); err != nil {
+		return fmt.Errorf("get inbox event: %w", err)
+	}
+	if orderID != e.OrderID || userID != e.UserID || status != e.Status {
+		return entity.ErrConflict
 	}
 	return nil
 }

@@ -43,6 +43,8 @@ func toGRPC(err error) error {
 	switch {
 	case errors.Is(err, entity.ErrInvalid):
 		return status.Error(codes.InvalidArgument, err.Error())
+	case errors.Is(err, entity.ErrConflict):
+		return status.Error(codes.FailedPrecondition, err.Error())
 	case errors.Is(err, entity.ErrUnavailable):
 		return status.Error(codes.Unavailable, err.Error())
 	case errors.Is(err, entity.ErrDependency):
