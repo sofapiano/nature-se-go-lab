@@ -45,11 +45,10 @@ func TestPostgresSave_Error(t *testing.T) {
 func TestPostgresSave_IdempotentSamePayload(t *testing.T) {
 	ctx, mock := newCtx(t)
 	ev := entity.InboxEvent{EventID: "e-1", OrderID: "o-1", UserID: "u-1", Status: "paid"}
+	// Совпадающий payload: ON CONFLICT DO UPDATE (no-op) затрагивает 1 строку.
 	mock.ExpectExec("INSERT INTO notifier.inbox").
 		WithArgs(ev.EventID, ev.OrderID, ev.UserID, ev.Status).
-		WillReturnResult(pgxmock.NewResult("INSERT", 0))
-	mock.ExpectQuery("SELECT order_id, user_id, status").WithArgs("e-1").
-		WillReturnRows(pgxmock.NewRows([]string{"order_id", "user_id", "status"}).AddRow("o-1", "u-1", "paid"))
+		WillReturnResult(pgxmock.NewResult("INSERT", 1))
 	require.NoError(t, NewPostgres(nil).Save(ctx, ev))
 	require.NoError(t, mock.ExpectationsWereMet())
 }
@@ -57,11 +56,10 @@ func TestPostgresSave_IdempotentSamePayload(t *testing.T) {
 func TestPostgresSave_ConflictChangedPayload(t *testing.T) {
 	ctx, mock := newCtx(t)
 	ev := entity.InboxEvent{EventID: "e-1", OrderID: "o-1", UserID: "u-1", Status: "paid"}
+	// Другой payload под тем же event_id: WHERE не совпал -> 0 строк -> конфликт.
 	mock.ExpectExec("INSERT INTO notifier.inbox").
 		WithArgs(ev.EventID, ev.OrderID, ev.UserID, ev.Status).
 		WillReturnResult(pgxmock.NewResult("INSERT", 0))
-	mock.ExpectQuery("SELECT order_id, user_id, status").WithArgs("e-1").
-		WillReturnRows(pgxmock.NewRows([]string{"order_id", "user_id", "status"}).AddRow("o-1", "u-1", "awaiting_payment"))
 	err := NewPostgres(nil).Save(ctx, ev)
 	require.ErrorIs(t, err, entity.ErrConflict)
 	require.NoError(t, mock.ExpectationsWereMet())

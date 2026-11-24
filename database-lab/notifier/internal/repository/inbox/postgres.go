@@ -19,21 +19,28 @@ func NewPostgres(pool *pgxpool.Pool) *postgresRepository {
 	return &postgresRepository{pool: pool}
 }
 
-// Save регистрирует событие. Повтор с тем же event_id в ЛЮБОМ состоянии
-// (pending/in_progress/processed) не создаёт вторую задачу: DO NOTHING.
+// Save регистрирует событие. Повтор с тем же event_id и тем же payload — идемпотентный
+// no-op; тот же event_id с другим payload — конфликт. Одна атомарная операция:
+// ON CONFLICT DO UPDATE ... WHERE payload совпадает (no-op update), иначе 0 строк.
 func (r *postgresRepository) Save(ctx context.Context, e entity.InboxEvent) error {
 	exec := db.GetExecutor(ctx, r.pool)
 	tag, err := exec.Exec(ctx, `
 		INSERT INTO notifier.inbox (event_id, order_id, user_id, status, state)
 		VALUES ($1, $2, $3, $4, 'pending')
-		ON CONFLICT (event_id) DO NOTHING
+		ON CONFLICT (event_id) DO UPDATE
+		SET event_id = EXCLUDED.event_id
+		WHERE LOWER(notifier.inbox.order_id) = LOWER(EXCLUDED.order_id)
+		  AND LOWER(notifier.inbox.user_id) = LOWER(EXCLUDED.user_id)
+		  AND LOWER(notifier.inbox.status) = LOWER(EXCLUDED.status)
 	`, e.EventID, e.OrderID, e.UserID, e.Status)
 	if err != nil {
 		return fmt.Errorf("save inbox event: %w", err)
 	}
-	if tag.RowsAffected() > 0 {
-		return nil
+	if tag.RowsAffected() == 0 {
+		return entity.ErrConflict
 	}
+	return nil
+}
 
 	// event_id уже зарегистрирован: идемпотентный повтор допустим только с тем же
 	// payload; другой payload под тем же ключом — конфликт.
