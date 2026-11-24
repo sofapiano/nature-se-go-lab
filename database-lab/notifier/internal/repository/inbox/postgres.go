@@ -36,25 +36,13 @@ func (r *postgresRepository) Save(ctx context.Context, e entity.InboxEvent) erro
 	if err != nil {
 		return fmt.Errorf("save inbox event: %w", err)
 	}
+
+	// Если RowsAffected == 0, значит запись с таким event_id уже существует,
+	// но условия WHERE не совпали (payload другой). Это конфликт.
 	if tag.RowsAffected() == 0 {
 		return entity.ErrConflict
 	}
-	return nil
-}
 
-	// event_id уже зарегистрирован: идемпотентный повтор допустим только с тем же
-	// payload; другой payload под тем же ключом — конфликт.
-	var orderID, userID, status string
-	if err := exec.QueryRow(ctx, `
-		SELECT order_id, user_id, status
-		FROM notifier.inbox
-		WHERE event_id = $1
-	`, e.EventID).Scan(&orderID, &userID, &status); err != nil {
-		return fmt.Errorf("get inbox event: %w", err)
-	}
-	if orderID != e.OrderID || userID != e.UserID || status != e.Status {
-		return entity.ErrConflict
-	}
 	return nil
 }
 
@@ -92,7 +80,12 @@ func (r *postgresRepository) Claim(ctx context.Context, limit int) ([]entity.Inb
 		}
 		events = append(events, e)
 	}
-	return events, rows.Err()
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows iteration error: %w", err)
+	}
+
+	return events, nil
 }
 
 // MarkProcessed закрывает задачу. lease_until = $2 — fencing-токен:

@@ -85,9 +85,9 @@ func TestInboxWorker_processBatch_Failure(t *testing.T) {
 			if eventID != "e1" {
 				t.Errorf("expected eventID e1, got %s", eventID)
 			}
-			// backoffBaseSec = 5, attempts = 2 -> 5 * 2 = 10. min(60, 10) = 10
-			if backoffSec != 10 {
-				t.Errorf("expected backoffSec 10, got %d", backoffSec)
+			// backoffBaseSec = 1, attempts = 2 -> 1 * 2 = 2. min(60, 2) = 2
+			if backoffSec != 2 {
+				t.Errorf("expected backoffSec 2, got %d", backoffSec)
 			}
 			return nil
 		},
