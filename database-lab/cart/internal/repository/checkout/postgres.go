@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/igoroutine-courses/microservices.ecommerce.cart/internal/db"
+	"github.com/jackc/pgx/v5"
 )
 
 type postgresRepository struct {

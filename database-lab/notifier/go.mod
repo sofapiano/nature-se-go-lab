@@ -9,6 +9,7 @@ require (
 	github.com/caarlos0/env/v10 v10.0.0
 	github.com/igoroutine-courses/microservices.ecommerce.pkg v0.0.0-00010101000000-000000000000
 	github.com/jackc/pgx/v5 v5.13.0
+	github.com/pashagolub/pgxmock/v6 v6.0.0
 	github.com/pressly/goose/v3 v3.30.1
 	github.com/sqlc-dev/sqlc v1.31.1
 	github.com/stretchr/testify v1.12.1
