@@ -10,18 +10,25 @@ import (
 	"github.com/igoroutine-courses/microservices.ecommerce.loms/internal/entity"
 )
 
+// requestKey — составной ключ идемпотентности: request_id принадлежит
+// пользователю, независимые пользователи могут использовать одинаковые ключи.
+type requestKey struct {
+	userID    string
+	requestID string
+}
+
 // repository хранит заказы и индексы идемпотентности. Сериализация создания
 // идёт через usecase (createMx); здесь только разделяемый доступ.
 type repository struct {
 	mx       sync.RWMutex
 	orders   map[string]entity.Order
-	requests map[string]entity.OrderRequest
+	requests map[requestKey]entity.OrderRequest
 }
 
 func New() *repository {
 	return &repository{
 		orders:   map[string]entity.Order{},
-		requests: map[string]entity.OrderRequest{},
+		requests: map[requestKey]entity.OrderRequest{},
 	}
 }
 
@@ -36,12 +43,12 @@ func (r *repository) Get(_ context.Context, orderID string) (entity.Order, error
 	return o, nil
 }
 
-// GetRequest возвращает сохранённый ключ идемпотентности, если он был.
-func (r *repository) GetRequest(_ context.Context, requestID string) (entity.OrderRequest, bool) {
+// GetRequest возвращает сохранённый ключ идемпотентности этого пользователя.
+func (r *repository) GetRequest(_ context.Context, userID, requestID string) (entity.OrderRequest, bool) {
 	r.mx.RLock()
 	defer r.mx.RUnlock()
 
-	req, ok := r.requests[requestID]
+	req, ok := r.requests[requestKey{userID: userID, requestID: requestID}]
 	return req, ok
 }
 
@@ -52,7 +59,7 @@ func (r *repository) Save(_ context.Context, order entity.Order, requestID strin
 	defer r.mx.Unlock()
 
 	r.orders[order.OrderID] = order
-	r.requests[requestID] = entity.OrderRequest{
+	r.requests[requestKey{userID: order.UserID, requestID: requestID}] = entity.OrderRequest{
 		RequestID: requestID,
 		UserID:    order.UserID,
 		Items:     items,

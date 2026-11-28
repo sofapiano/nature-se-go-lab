@@ -23,7 +23,7 @@ const (
 type (
 	orderRepository interface {
 		Get(ctx context.Context, orderID string) (entity.Order, error)
-		GetRequest(ctx context.Context, requestID string) (entity.OrderRequest, bool)
+		GetRequest(ctx context.Context, userID, requestID string) (entity.OrderRequest, bool)
 		Save(ctx context.Context, order entity.Order, requestID string, items []entity.Item)
 		Update(ctx context.Context, order entity.Order)
 		ListByUser(ctx context.Context, userID, afterOrderID string, limit int) ([]entity.Order, error)
@@ -89,7 +89,7 @@ func (s *service) CreateOrder(ctx context.Context, userID, requestID string, in 
 	s.stateMx.Lock()
 	defer s.stateMx.Unlock()
 
-	if stored, ok := s.orders.GetRequest(ctx, requestID); ok {
+	if stored, ok := s.orders.GetRequest(ctx, userID, requestID); ok {
 		if !stored.Matches(userID, items) {
 			return "", fmt.Errorf("%w: request_id reused with different payload", entity.ErrConflict)
 		}
