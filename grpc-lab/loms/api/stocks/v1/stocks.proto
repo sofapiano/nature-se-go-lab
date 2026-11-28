@@ -26,7 +26,9 @@ message GetStockResponse {
 // SetStock заменяет остаток целиком; повторный вызов с тем же значением безопасен.
 message SetStockRequest {
   string sku = 1 [json_name = "sku", (buf.validate.field).string = {min_len: 1, max_len: 64, pattern: "^[A-Za-z0-9][A-Za-z0-9_-]*$"}];
-  uint64 count = 2 [json_name = "count", (buf.validate.field).uint64.lte = 1000000000];
+  // optional + required: пропуск count → InvalidArgument без мутации;
+  // явный count=0 остаётся допустимым (легальное обнуление остатка).
+  optional uint64 count = 2 [json_name = "count", (buf.validate.field).required = true, (buf.validate.field).uint64.lte = 1000000000];
 }
 
 // ReceiveStock добавляет count к остатку. operation_id — ключ идемпотентности:

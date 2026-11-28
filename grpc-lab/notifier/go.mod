@@ -8,6 +8,7 @@ require (
 	buf.build/go/protovalidate v1.4.0
 	github.com/caarlos0/env/v10 v10.0.0
 	github.com/igoroutine-courses/microservices.ecommerce.pkg v0.0.0-00010101000000-000000000000
+	go.uber.org/mock v0.6.0
 	google.golang.org/grpc v1.85.0
 	google.golang.org/protobuf v1.36.12
 )

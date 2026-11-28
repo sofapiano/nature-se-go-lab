@@ -84,6 +84,9 @@ type OrderRequest struct {
 
 // Matches сравнивает только «входные» поля (SKU+Count); Name/Price — снапшот,
 // они могут отличаться от исходного запроса и не влияют на идемпотентность.
+// Предусловие: items и r.Items приведены к каноническому порядку (сортировка
+// по SKU в canonicalize), поэтому поэлементное сравнение эквивалентно
+// сравнению составов как множеств и не зависит от порядка исходного запроса.
 func (r OrderRequest) Matches(userID string, items []Item) bool {
 	if r.UserID != userID || len(r.Items) != len(items) {
 		return false

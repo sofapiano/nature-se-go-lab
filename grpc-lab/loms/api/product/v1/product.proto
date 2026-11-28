@@ -23,8 +23,10 @@ message Product {
 }
 
 message CreateProductRequest {
-  string sku = 1 [json_name = "sku", (buf.validate.field).string = {min_len: 1, max_len: 64, pattern: "^[A-Za-z0-9][A-Za-z0-9_-]*$"}];
-  string name = 2 [json_name = "name", (buf.validate.field).string = {min_len: 1, max_len: 255, pattern: "\\S"}];
+  string sku  = 1 [json_name = "sku", (buf.validate.field).string = {min_len: 1, max_len: 64, pattern: "^[A-Za-z0-9][A-Za-z0-9_-]*$"}];
+  // Бизнес-инвариант «имя не состоит из пробелов» проверяет usecase (validate).
+  // В proto — только форматные границы длины.
+  string name = 2 [json_name = "name", (buf.validate.field).string = {min_len: 1, max_len: 200}];
   uint32 price = 3 [json_name = "price", (buf.validate.field).uint32 = {gte: 1, lte: 1000000}];
 }
 
@@ -59,7 +61,9 @@ message ListProductsResponse {
 
 message UpdateProductRequest {
   string sku = 1 [json_name = "sku", (buf.validate.field).string = {min_len: 1, max_len: 64, pattern: "^[A-Za-z0-9][A-Za-z0-9_-]*$"}];
-  string name = 2 [json_name = "name", (buf.validate.field).string = {min_len: 1, max_len: 255, pattern: "\\S"}];
+  string name = 2 [json_name = "name", (buf.validate.field).string = {min_len: 1, max_len: 200}];
   uint32 price = 3 [json_name = "price", (buf.validate.field).uint32 = {gte: 1, lte: 1000000}];
-  bool active = 4 [json_name = "active"];
+  // optional даёт presence: пропуск ≠ явный false. required требует наличия:
+  // пропуск → InvalidArgument на интерцепторе, без изменения товара.
+  optional bool active = 4 [json_name = "active", (buf.validate.field).required = true];
 }

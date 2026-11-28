@@ -3,6 +3,8 @@ package product
 import (
 	"context"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
 
 	"github.com/igoroutine-courses/microservices.ecommerce.loms/internal/controller/converter"
@@ -79,6 +81,9 @@ func (c *controller) ListProducts(ctx context.Context, req *productpb.ListProduc
 }
 
 func (c *controller) UpdateProduct(ctx context.Context, req *productpb.UpdateProductRequest) (*emptypb.Empty, error) {
+	if req.Active == nil {
+		return nil, status.Error(codes.InvalidArgument, "active is required")
+	}
 	err := c.service.Update(ctx, entity.Product{
 		SKU:    req.GetSku(),
 		Name:   req.GetName(),

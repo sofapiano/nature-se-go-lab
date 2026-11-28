@@ -12,13 +12,15 @@ import (
 // здесь уже канонические — приведение к ним делает usecase.
 type repository struct {
 	mx       sync.RWMutex
-	balances map[string]uint64              // остаток по SKU
+	balances map[string]uint64              // доступный остаток по SKU
+	reserved map[string]uint64              // обязательства по возврату: сколько вернёт Release
 	receipts map[string]entity.StockReceipt // принятые поступления по operation_id
 }
 
 func New() *repository {
 	return &repository{
 		balances: map[string]uint64{},
+		reserved: map[string]uint64{},
 		receipts: map[string]entity.StockReceipt{},
 	}
 }
@@ -31,13 +33,17 @@ func (r *repository) Get(_ context.Context, sku string) (uint64, error) {
 	return r.balances[sku], nil
 }
 
-// Set заменяет остаток.
+// Set заменяет доступный остаток. Инвариант склада: available + reserved ≤
+// MaxStock. Set увеличивает сумму, поэтому проверяем её вместе с обязательствами:
+// иначе последующий Release выведет остаток за предел. Отказ — до изменения состояния.
 func (r *repository) Set(_ context.Context, sku string, count uint64) error {
 	r.mx.Lock()
 	defer r.mx.Unlock()
 
+	if count+r.reserved[sku] > entity.MaxStock {
+		return fmt.Errorf("stock of %s with reservations would exceed %d: %w", sku, entity.MaxStock, entity.ErrState)
+	}
 	r.balances[sku] = count
-
 	return nil
 }
 
@@ -62,7 +68,7 @@ func (r *repository) Receive(_ context.Context, receipt entity.StockReceipt) err
 	}
 
 	total := r.balances[receipt.SKU] + receipt.Count
-	if total > entity.MaxStock {
+	if total+r.reserved[receipt.SKU] > entity.MaxStock {
 		return fmt.Errorf("stock of %s would exceed %d: %w", receipt.SKU, entity.MaxStock, entity.ErrState)
 	}
 
@@ -86,21 +92,23 @@ func (r *repository) Reserve(_ context.Context, items []entity.Item) error {
 	}
 	for _, item := range items {
 		r.balances[item.SKU] -= uint64(item.Count)
+		r.reserved[item.SKU] += uint64(item.Count)
 	}
 	return nil
 }
 
-// Release возвращает ранее зарезервированное. Идемпотентности здесь нет:
-// usecase вызывает Release только после проверки статуса заказа, поэтому
-// каждое списание компенсируется не более одного раза. Overflow тоже не
-// проверяем: Release возвращает ровно то, что Reserve списал, а состояние
-// «до резерва» уже было ≤ entity.MaxStock.
+// Release возвращает ранее зарезервированное: перекладывает из reserved в
+// available. Сумма available + reserved не меняется, поэтому предел не
+// нарушается по построению — его охраняют Set/Receive при увеличении суммы.
+// Идемпотентности здесь нет: usecase вызывает Release только после проверки
+// статуса заказа, каждое списание компенсируется не более одного раза.
 func (r *repository) Release(_ context.Context, items []entity.Item) error {
 	r.mx.Lock()
 	defer r.mx.Unlock()
 
 	for _, item := range items {
 		r.balances[item.SKU] += uint64(item.Count)
+		r.reserved[item.SKU] -= uint64(item.Count)
 	}
 	return nil
 }

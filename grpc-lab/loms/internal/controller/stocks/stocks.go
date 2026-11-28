@@ -3,6 +3,8 @@ package stocks
 import (
 	"context"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
 
 	"github.com/igoroutine-courses/microservices.ecommerce.loms/internal/controller/converter"
@@ -38,6 +40,9 @@ func (c *controller) GetStock(ctx context.Context, req *stockspb.GetStockRequest
 }
 
 func (c *controller) SetStock(ctx context.Context, req *stockspb.SetStockRequest) (*emptypb.Empty, error) {
+	if req.Count == nil {
+		return nil, status.Error(codes.InvalidArgument, "count is required")
+	}
 	if err := c.service.Set(ctx, req.GetSku(), req.GetCount()); err != nil {
 		return nil, converter.Error(err)
 	}

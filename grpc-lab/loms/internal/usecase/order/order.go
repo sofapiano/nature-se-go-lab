@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -338,8 +340,8 @@ func (s *service) resolveProducts(ctx context.Context, items []entity.Item) (uin
 	return total, nil
 }
 
-// canonicalize приводит входные позиции к виду «sku upper + count», запрещает
-// дубли SKU (после нормализации) и нулевые count.
+// canonicalize приводит входные позиции к каноническому виду: sku upper, count > 0, без дублей,
+// отсортировано по SKU.
 func canonicalize(in []entity.Item) ([]entity.Item, error) {
 	out := make([]entity.Item, len(in))
 	seen := make(map[string]struct{}, len(in))
@@ -357,6 +359,14 @@ func canonicalize(in []entity.Item) ([]entity.Item, error) {
 		seen[sku] = struct{}{}
 		out[i] = entity.Item{SKU: sku, Count: it.Count}
 	}
+
+	// Канонический порядок — по SKU: состав операции не должен зависеть от
+	// порядка позиций во входе (и от порядка итерации map в cart). Дубликаты
+	// запрещены выше, поэтому SKU задаёт полный порядок.
+	slices.SortFunc(out, func(a, b entity.Item) int {
+		return strings.Compare(a.SKU, b.SKU)
+	})
+
 	return out, nil
 }
 

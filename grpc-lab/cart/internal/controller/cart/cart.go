@@ -129,6 +129,8 @@ func toGRPC(err error) error {
 		return status.Error(codes.FailedPrecondition, err.Error())
 	case errors.Is(err, entity.ErrTotalOverflow):
 		return status.Error(codes.FailedPrecondition, err.Error())
+	case errors.Is(err, entity.ErrCheckoutPending):
+		return status.Error(codes.AlreadyExists, err.Error())
 	default:
 		return status.Error(codes.Internal, "internal error")
 	}
